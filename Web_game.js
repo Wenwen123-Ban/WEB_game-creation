@@ -1,44 +1,42 @@
-const appStates = ["mainMenu", "mapSelection", "teamSelection", "playing"];
-const gameStates = ["menu", "setup", "playing", "paused", "gameOver"];
+const APP_SECTIONS = ["mainMenu", "mapSelection", "teamSelection", "playing"];
+const GAME_STATES = ["menu", "mapSelect", "lobby", "playing", "paused"];
+const WORLD_WIDTH = 3000;
+const WORLD_HEIGHT = 2000;
+let GAME_STATE = "menu";
 let currentPlayer = null;
+let units = [];
+let projectiles = [];
+let effects = [];
 
-const UIController = {
-  update() {
-    const state = GameManager.state;
-    const setupStep = GameManager.setupStep;
+function updateUIVisibility() {
+  const sectionMap = {
+    menu: "mainMenu",
+    mapSelect: "mapSelection",
+    lobby: "teamSelection",
+    playing: "playing",
+    paused: "playing",
+  };
 
-    const sectionMap = {
-      menu: "mainMenu",
-      mapSelection: "mapSelection",
-      teamSelection: "teamSelection",
-      playing: "playing",
-    };
+  const activeSectionId = sectionMap[GAME_STATE] || null;
+  APP_SECTIONS.forEach((sectionId) => {
+    document.getElementById(sectionId)?.classList.toggle("hidden", sectionId !== activeSectionId);
+  });
 
-    const activeSectionId =
-      state === "menu"
-        ? sectionMap.menu
-        : state === "setup"
-          ? sectionMap[setupStep]
-          : state === "playing"
-            ? sectionMap.playing
-            : null;
+  document.getElementById("sharedMapPanel")?.classList.toggle("hidden", GAME_STATE !== "mapSelect");
+  document.getElementById("loggedInDashboard")?.classList.toggle("hidden", GAME_STATE === "playing" || GAME_STATE === "paused");
+  document.getElementById("backBtn")?.classList.toggle("hidden", GAME_STATE === "menu" || GAME_STATE === "playing" || GAME_STATE === "paused");
+}
 
-    appStates.forEach((sectionId) => {
-      document.getElementById(sectionId)?.classList.toggle("hidden", sectionId !== activeSectionId);
-    });
+function setGameState(state) {
+  if (!GAME_STATES.includes(state)) {
+    return;
+  }
 
-    const hideSetupPanels = state === "playing";
-    document.getElementById("sharedMapPanel")?.classList.toggle("hidden", hideSetupPanels || state !== "setup");
-    document.getElementById("loggedInDashboard")?.classList.toggle("hidden", hideSetupPanels);
-
-    document.getElementById("canvasContainer")?.classList.toggle("hidden", state !== "playing");
-    document.getElementById("backBtn")?.classList.toggle("hidden", state === "menu" || state === "playing");
-  },
-};
+  GAME_STATE = state;
+  updateUIVisibility();
+}
 
 const GameManager = {
-  state: gameStates[0],
-  setupStep: "mapSelection",
   selectedMode: null,
   selectedMapId: null,
   playerCount: null,
@@ -64,8 +62,10 @@ const GameManager = {
       status: "pending",
     });
 
-    this.state = "playing";
-    UIController.update();
+    units = [];
+    projectiles = [];
+    effects = [];
+    setGameState("playing");
     GameplayMapRenderer.init(getSelectedMap());
     updateDashboard();
   },
@@ -95,15 +95,16 @@ const GameplayMapRenderer = {
     const container = document.getElementById("canvasContainer");
     container.textContent = "";
 
+    const worldViewport = document.getElementById("gameWorld");
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(700, container.clientWidth || 700);
-    canvas.height = Math.max(420, container.clientHeight || 420);
+    canvas.width = Math.max(700, Math.min(WORLD_WIDTH, worldViewport?.clientWidth || 1100));
+    canvas.height = Math.max(420, Math.min(WORLD_HEIGHT, worldViewport?.clientHeight || 620));
     canvas.className = "gameplay-canvas";
     container.appendChild(canvas);
 
     this.canvas = canvas;
     this.context = canvas.getContext("2d");
-    this.map = selectedMap;
+    this.map = toWorldMap(selectedMap);
     this.camera = {
       x: 0,
       y: 0,
@@ -115,12 +116,15 @@ const GameplayMapRenderer = {
   },
   start() {
     cancelAnimationFrame(this.animationFrame);
-    const loop = () => {
-      this.updateCamera();
-      this.render();
-      this.animationFrame = requestAnimationFrame(loop);
-    };
-    loop();
+    this.gameLoop();
+  },
+  gameLoop() {
+    this.update();
+    this.render();
+    this.animationFrame = requestAnimationFrame(() => this.gameLoop());
+  },
+  update() {
+    this.updateCamera();
   },
   updateCamera() {
     if (!this.camera || !this.map) {
@@ -138,7 +142,7 @@ const GameplayMapRenderer = {
     this.camera.y = Math.max(0, Math.min(this.camera.y, maxY));
   },
   render() {
-    if (!this.context || !this.map) {
+    if (!this.context || !this.map || !this.camera) {
       return;
     }
 
@@ -162,6 +166,33 @@ const GameplayMapRenderer = {
     this.animationFrame = null;
   },
 };
+
+function toWorldMap(map) {
+  if (!map) {
+    return null;
+  }
+
+  const scaleX = WORLD_WIDTH / map.width;
+  const scaleY = WORLD_HEIGHT / map.height;
+  const toWorldPoint = (point) => ({
+    x: point.x * scaleX,
+    y: point.y * scaleY,
+  });
+
+  return {
+    ...map,
+    width: WORLD_WIDTH,
+    height: WORLD_HEIGHT,
+    spawnPoints: {
+      blue: toWorldPoint(map.spawnPoints.blue),
+      red: toWorldPoint(map.spawnPoints.red),
+    },
+    towns: map.towns.map((town) => ({
+      ...town,
+      ...toWorldPoint(town),
+    })),
+  };
+}
 
 const AudioManager = {
   masterVolume: 1,
@@ -196,28 +227,26 @@ function getMapsOrLogError() {
 }
 
 function setAppState(stateId) {
-  if (!appStates.includes(stateId)) {
+  const stateMap = {
+    mainMenu: "menu",
+    mapSelection: "mapSelect",
+    teamSelection: "lobby",
+    playing: "playing",
+  };
+
+  const nextState = stateMap[stateId];
+  if (!nextState) {
     return;
   }
 
-  if (stateId === "mainMenu") {
-    GameManager.state = "menu";
-  } else if (stateId === "mapSelection" || stateId === "teamSelection") {
-    GameManager.state = "setup";
-    GameManager.setupStep = stateId;
-  } else if (stateId === "playing") {
-    GameManager.state = "playing";
-  }
-
-  if (stateId !== "playing") {
+  if (nextState !== "playing" && nextState !== "paused") {
     GameplayMapRenderer.teardown();
   }
 
-  UIController.update();
-
+  setGameState(nextState);
   document.getElementById("settingsScene").classList.add("hidden");
 
-  if (stateId === "teamSelection") {
+  if (nextState === "lobby") {
     renderTeamSlots();
   }
 
@@ -225,7 +254,7 @@ function setAppState(stateId) {
 }
 
 function goBack() {
-  if (GameManager.state === "setup" && GameManager.setupStep === "teamSelection") {
+  if (GAME_STATE === "lobby") {
     setAppState("mapSelection");
     return;
   }
@@ -540,27 +569,36 @@ function updateDeveloperControls() {
 }
 
 function updateDashboard() {
+  const menuName = document.getElementById("playerName");
+  const menuGold = document.getElementById("goldValue");
+  const gameplayName = document.getElementById("gameplayPlayerName");
+  const gameplayGold = document.getElementById("gameplayGoldValue");
+
   if (!currentPlayer) {
-    document.getElementById("playerName").textContent = "Guest";
-    document.getElementById("goldValue").textContent = "0";
+    menuName.textContent = "Guest";
+    menuGold.textContent = "0";
     document.getElementById("xpValue").textContent = "0";
     document.getElementById("levelValue").textContent = "1";
     document.getElementById("winsValue").textContent = "0";
     document.getElementById("lossValue").textContent = "0";
     document.getElementById("loggedInBadge").textContent = "LOG IN";
     document.getElementById("loggedInBadge").disabled = false;
+    gameplayName.textContent = "Guest";
+    gameplayGold.textContent = "0";
     updateDeveloperControls();
     return;
   }
 
-  document.getElementById("playerName").textContent = currentPlayer.username;
-  document.getElementById("goldValue").textContent = String(currentPlayer.gold ?? 0);
+  menuName.textContent = currentPlayer.username;
+  menuGold.textContent = String(currentPlayer.gold ?? 0);
   document.getElementById("xpValue").textContent = String(currentPlayer.xp ?? 0);
   document.getElementById("levelValue").textContent = String(currentPlayer.level ?? 1);
   document.getElementById("winsValue").textContent = String(currentPlayer.wins ?? 0);
   document.getElementById("lossValue").textContent = String(currentPlayer.losses ?? 0);
   document.getElementById("loggedInBadge").textContent = `LOGGED IN: ${currentPlayer.username}`;
   document.getElementById("loggedInBadge").disabled = true;
+  gameplayName.textContent = currentPlayer.username;
+  gameplayGold.textContent = String(currentPlayer.gold ?? 0);
   updateDeveloperControls();
 }
 
@@ -917,6 +955,16 @@ document.addEventListener("DOMContentLoaded", () => {
   addListenerById("loggedInBadge", "click", openLoginPopup);
   addListenerById("devSetGoldBtn", "click", openSetDeveloperGoldPopup);
   addListenerById("devSendGoldBtn", "click", openSendGoldPopup);
+  addListenerById("pauseBtn", "click", () => {
+    if (GAME_STATE === "playing") {
+      setGameState("paused");
+      return;
+    }
+
+    if (GAME_STATE === "paused") {
+      setGameState("playing");
+    }
+  });
 
   document.addEventListener("keydown", (event) => {
     GameplayMapRenderer.keyState[event.code] = true;

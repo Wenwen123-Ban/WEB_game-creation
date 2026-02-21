@@ -78,8 +78,17 @@
 
     <section id="playing" class="app-state hidden">
       <div class="playing-shell">
-        <div class="playing-bar">MATCH IN PROGRESS</div>
-        <div id="canvasContainer" class="canvas-container">Gameplay canvas container</div>
+        <div id="gameUI">
+          <div class="playing-bar">MATCH IN PROGRESS</div>
+          <div class="in-game-hud panel">
+            <p><strong id="gameplayPlayerName">Guest</strong></p>
+            <p>Gold: <span id="gameplayGoldValue">0</span></p>
+            <button id="pauseBtn" class="menu-btn" type="button">PAUSE</button>
+          </div>
+        </div>
+        <div id="gameWorld">
+          <div id="canvasContainer" class="canvas-container">Gameplay canvas container</div>
+        </div>
       </div>
     </section>
 
