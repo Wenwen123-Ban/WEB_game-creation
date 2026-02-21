@@ -295,6 +295,19 @@ function updateDashboard() {
   document.getElementById("loggedInBadge").disabled = true;
 }
 
+
+async function logoutPlayer() {
+  try {
+    await apiPost("/logout", {});
+    currentPlayer = null;
+    resetTeams();
+    updateDashboard();
+    setAppState("mainMenu");
+  } catch (error) {
+    showWarningPopup(error.message || "Logout failed.");
+  }
+}
+
 async function refreshAccountState() {
   try {
     const response = await fetch("/get_current_user");
@@ -493,9 +506,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("backBtn").addEventListener("click", goBack);
   document.getElementById("btn-play").addEventListener("click", () => setAppState("mapSelection"));
+  document.getElementById("btn-maps").addEventListener("click", () => setAppState("mapSelection"));
   document.getElementById("btn-settings").addEventListener("click", () => {
     document.getElementById("settingsScene").classList.remove("hidden");
   });
+  document.getElementById("btn-logout").addEventListener("click", logoutPlayer);
   document.getElementById("btn-settings-close").addEventListener("click", () => {
     document.getElementById("settingsScene").classList.add("hidden");
   });
