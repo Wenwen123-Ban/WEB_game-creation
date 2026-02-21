@@ -88,10 +88,26 @@ const GameplayMapRenderer = {
   context: null,
   map: null,
   camera: null,
+  cameraTarget: null,
   keyState: {},
   animationFrame: null,
   speed: 14,
+  edgeScrollZone: 20,
+  pointerPosition: { x: 0, y: 0 },
+  isPointerInsideCanvas: false,
+  isDragPanning: false,
+  dragButton: null,
+  lastDragPosition: null,
+  cameraSmoothing: 0.2,
+  onPointerMove: null,
+  onPointerDown: null,
+  onPointerUp: null,
+  onPointerEnter: null,
+  onPointerLeave: null,
+  onContextMenu: null,
   init(selectedMap) {
+    this.detachPointerControls();
+
     const container = document.getElementById("canvasContainer");
     container.textContent = "";
 
@@ -111,6 +127,12 @@ const GameplayMapRenderer = {
       width: canvas.width,
       height: canvas.height,
     };
+    this.cameraTarget = {
+      x: this.camera.x,
+      y: this.camera.y,
+    };
+
+    this.attachPointerControls();
 
     this.start();
   },
@@ -127,19 +149,123 @@ const GameplayMapRenderer = {
     this.updateCamera();
   },
   updateCamera() {
-    if (!this.camera || !this.map) {
+    if (!this.camera || !this.map || !this.cameraTarget) {
       return;
     }
 
-    if (this.keyState.ArrowUp || this.keyState.KeyW) this.camera.y -= this.speed;
-    if (this.keyState.ArrowDown || this.keyState.KeyS) this.camera.y += this.speed;
-    if (this.keyState.ArrowLeft || this.keyState.KeyA) this.camera.x -= this.speed;
-    if (this.keyState.ArrowRight || this.keyState.KeyD) this.camera.x += this.speed;
-
     const maxX = Math.max(0, this.map.width - this.camera.width);
     const maxY = Math.max(0, this.map.height - this.camera.height);
+
+    if (this.isPointerInsideCanvas && !this.isDragPanning) {
+      const { x, y } = this.pointerPosition;
+      if (x <= this.edgeScrollZone) this.cameraTarget.x -= this.speed;
+      if (x >= this.canvas.width - this.edgeScrollZone) this.cameraTarget.x += this.speed;
+      if (y <= this.edgeScrollZone) this.cameraTarget.y -= this.speed;
+      if (y >= this.canvas.height - this.edgeScrollZone) this.cameraTarget.y += this.speed;
+    }
+
+    if (this.keyState.ArrowUp || this.keyState.KeyW) this.cameraTarget.y -= this.speed;
+    if (this.keyState.ArrowDown || this.keyState.KeyS) this.cameraTarget.y += this.speed;
+    if (this.keyState.ArrowLeft || this.keyState.KeyA) this.cameraTarget.x -= this.speed;
+    if (this.keyState.ArrowRight || this.keyState.KeyD) this.cameraTarget.x += this.speed;
+
+    this.cameraTarget.x = Math.max(0, Math.min(this.cameraTarget.x, maxX));
+    this.cameraTarget.y = Math.max(0, Math.min(this.cameraTarget.y, maxY));
+
+    this.camera.x += (this.cameraTarget.x - this.camera.x) * this.cameraSmoothing;
+    this.camera.y += (this.cameraTarget.y - this.camera.y) * this.cameraSmoothing;
+
     this.camera.x = Math.max(0, Math.min(this.camera.x, maxX));
     this.camera.y = Math.max(0, Math.min(this.camera.y, maxY));
+  },
+  getCanvasPointerPosition(event) {
+    if (!this.canvas) {
+      return { x: 0, y: 0 };
+    }
+
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  },
+  attachPointerControls() {
+    if (!this.canvas) {
+      return;
+    }
+
+    this.onPointerMove = (event) => {
+      const position = this.getCanvasPointerPosition(event);
+      this.pointerPosition = position;
+
+      if (!this.isDragPanning || !this.lastDragPosition || !this.cameraTarget) {
+        return;
+      }
+
+      const deltaX = position.x - this.lastDragPosition.x;
+      const deltaY = position.y - this.lastDragPosition.y;
+      this.cameraTarget.x -= deltaX;
+      this.cameraTarget.y -= deltaY;
+      this.lastDragPosition = position;
+    };
+
+    this.onPointerDown = (event) => {
+      if (event.button !== 1 && event.button !== 2) {
+        return;
+      }
+
+      const position = this.getCanvasPointerPosition(event);
+      this.isDragPanning = true;
+      this.dragButton = event.button;
+      this.lastDragPosition = position;
+      this.pointerPosition = position;
+      event.preventDefault();
+    };
+
+    this.onPointerUp = (event) => {
+      if (!this.isDragPanning || event.button !== this.dragButton) {
+        return;
+      }
+
+      this.isDragPanning = false;
+      this.dragButton = null;
+      this.lastDragPosition = null;
+    };
+
+    this.onPointerEnter = (event) => {
+      this.isPointerInsideCanvas = true;
+      this.pointerPosition = this.getCanvasPointerPosition(event);
+    };
+
+    this.onPointerLeave = () => {
+      this.isPointerInsideCanvas = false;
+      this.isDragPanning = false;
+      this.dragButton = null;
+      this.lastDragPosition = null;
+    };
+
+    this.onContextMenu = (event) => {
+      event.preventDefault();
+    };
+
+    this.canvas.addEventListener("mousemove", this.onPointerMove);
+    this.canvas.addEventListener("mousedown", this.onPointerDown);
+    this.canvas.addEventListener("mouseup", this.onPointerUp);
+    this.canvas.addEventListener("mouseenter", this.onPointerEnter);
+    this.canvas.addEventListener("mouseleave", this.onPointerLeave);
+    this.canvas.addEventListener("contextmenu", this.onContextMenu);
+  },
+  detachPointerControls() {
+    if (!this.canvas) {
+      return;
+    }
+
+    if (this.onPointerMove) this.canvas.removeEventListener("mousemove", this.onPointerMove);
+    if (this.onPointerDown) this.canvas.removeEventListener("mousedown", this.onPointerDown);
+    if (this.onPointerUp) this.canvas.removeEventListener("mouseup", this.onPointerUp);
+    if (this.onPointerEnter) this.canvas.removeEventListener("mouseenter", this.onPointerEnter);
+    if (this.onPointerLeave) this.canvas.removeEventListener("mouseleave", this.onPointerLeave);
+    if (this.onContextMenu) this.canvas.removeEventListener("contextmenu", this.onContextMenu);
   },
   render() {
     if (!this.context || !this.map || !this.camera) {
@@ -149,21 +275,12 @@ const GameplayMapRenderer = {
     const { context: ctx, map, camera } = this;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    drawMapScene(ctx, map, {
-      sourceX: camera.x,
-      sourceY: camera.y,
-      sourceWidth: camera.width,
-      sourceHeight: camera.height,
-      destX: 0,
-      destY: 0,
-      destWidth: this.canvas.width,
-      destHeight: this.canvas.height,
-      withLabels: true,
-    });
+    drawMapSceneWithCamera(ctx, map, camera, true);
   },
   teardown() {
     cancelAnimationFrame(this.animationFrame);
     this.animationFrame = null;
+    this.detachPointerControls();
   },
 };
 
@@ -381,6 +498,30 @@ function drawMapScene(ctx, map, viewport) {
       ctx.fillStyle = "#1b2a1a";
       ctx.font = "14px Arial";
       ctx.fillText(town.name, toCanvasX(town.x) + 10, toCanvasY(town.y) - 10);
+    }
+  });
+}
+
+function drawMapSceneWithCamera(ctx, map, camera, withLabels) {
+  ctx.fillStyle = mapBackgroundPalette[map.background] || mapBackgroundPalette.default;
+  ctx.fillRect(0, 0, camera.width, camera.height);
+
+  const toDrawX = (worldX) => worldX - camera.x;
+  const toDrawY = (worldY) => worldY - camera.y;
+
+  const blueSpawn = map.spawnPoints.blue;
+  const redSpawn = map.spawnPoints.red;
+  drawStar(ctx, toDrawX(blueSpawn.x), toDrawY(blueSpawn.y), 10, "#1f57d6");
+  drawStar(ctx, toDrawX(redSpawn.x), toDrawY(redSpawn.y), 10, "#d83131");
+
+  map.towns.forEach((town) => {
+    const drawX = toDrawX(town.x);
+    const drawY = toDrawY(town.y);
+    drawStar(ctx, drawX, drawY, 9, "#d83131");
+    if (withLabels) {
+      ctx.fillStyle = "#1b2a1a";
+      ctx.font = "14px Arial";
+      ctx.fillText(town.name, drawX + 10, drawY - 10);
     }
   });
 }
