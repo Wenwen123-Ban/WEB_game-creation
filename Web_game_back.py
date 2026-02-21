@@ -1,11 +1,13 @@
 from flask import Flask, request, jsonify, send_from_directory, session
 import os
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "your-secret-key")
+app.config["SESSION_PERMANENT"] = True
+app.permanent_session_lifetime = timedelta(days=7)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "database.json")
 TRANSACTION_PATH = os.path.join(BASE_DIR, "transaction.json")
@@ -158,6 +160,7 @@ def login_player():
     if not account or not check_password_hash(account.get("password", ""), password):
         return jsonify({"success": False, "error": "Invalid username or password."}), 401
 
+    session.permanent = True
     session["username"] = username
     return jsonify({"success": True, "player": sanitize_player_response(username, account)})
 
@@ -196,6 +199,7 @@ def create_account():
         "role": "player",
     }
     save_database(data)
+    session.permanent = True
     session["username"] = username
 
     return jsonify({"success": True, "message": "Account created.", "player": sanitize_player_response(username, data["accounts"][username])}), 201
@@ -214,6 +218,19 @@ def get_current_user():
         return jsonify({"success": False})
 
     return jsonify({"success": True, "user": full_user_response(username, account)})
+
+
+@app.route("/check_session", methods=["GET"])
+def check_session():
+    if "username" in session:
+        return jsonify({"logged_in": True})
+    return jsonify({"logged_in": False})
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return jsonify({"success": True})
 
 
 @app.route("/api/dev-set-gold", methods=["POST"])
