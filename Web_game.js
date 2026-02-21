@@ -311,7 +311,7 @@ async function logoutPlayer() {
 async function refreshAccountState() {
   try {
     const response = await fetch("/get_current_user");
-    const data = await response.json();
+    const data = await parseApiResponse(response);
 
     currentPlayer = data.success ? data.user : null;
     updateDashboard();
@@ -378,12 +378,26 @@ async function apiPost(path, body) {
     body: JSON.stringify(body),
   });
 
-  const data = await response.json();
+  const data = await parseApiResponse(response);
   if (!response.ok || data.success === false) {
     throw new Error(data.error || "Request failed.");
   }
 
   return data;
+}
+
+async function parseApiResponse(response) {
+  const rawText = await response.text();
+
+  if (!rawText) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(rawText);
+  } catch (error) {
+    throw new Error("Server returned an invalid response. Please try again.");
+  }
 }
 
 function closePopup() {
@@ -460,6 +474,8 @@ function createPopup({ title, fields, onSubmit, submitLabel = "Confirm" }) {
   popup.appendChild(message);
   overlay.appendChild(popup);
   document.body.appendChild(overlay);
+
+  return { overlay, popup, form, message, actions };
 }
 
 function showWarningPopup(message) {
@@ -480,7 +496,7 @@ function showWarningPopup(message) {
 }
 
 function openLoginPopup() {
-  createPopup({
+  const popupControls = createPopup({
     title: "Login",
     fields: [
       { name: "username", placeholder: "Username" },
@@ -492,6 +508,30 @@ function openLoginPopup() {
       await refreshAccountState();
       closePopup();
       return { message: "Login successful." };
+    },
+  });
+
+  const createAccountBtn = document.createElement("button");
+  createAccountBtn.type = "button";
+  createAccountBtn.className = "menu-btn";
+  createAccountBtn.textContent = "Create Account";
+  createAccountBtn.addEventListener("click", openCreateAccountPopup);
+  popupControls.actions.prepend(createAccountBtn);
+}
+
+function openCreateAccountPopup() {
+  createPopup({
+    title: "Create Account",
+    fields: [
+      { name: "username", placeholder: "Username (3-24 chars, no spaces)" },
+      { name: "password", placeholder: "Password (min 6 chars)", type: "password" },
+    ],
+    submitLabel: "Create",
+    onSubmit: async ({ username, password }) => {
+      await apiPost("/api/create-account", { username, password });
+      await refreshAccountState();
+      closePopup();
+      return { message: "Account created." };
     },
   });
 }
@@ -551,9 +591,13 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 window.addEventListener("load", async () => {
-  const response = await fetch("/check_session");
-  const data = await response.json();
-  if (data.logged_in) {
-    await refreshAccountState();
+  try {
+    const response = await fetch("/check_session");
+    const data = await parseApiResponse(response);
+    if (data.logged_in) {
+      await refreshAccountState();
+    }
+  } catch (error) {
+    console.error("Failed to restore session", error);
   }
 });
