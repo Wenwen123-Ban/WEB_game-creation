@@ -8,11 +8,12 @@
 </head>
 <body>
   <div class="background">
-    <h1 class="game-title">NAPOLEON TIMES</h1>
+    <header class="app-header">
+      <h1 class="game-title">NAPOLEON TIMES</h1>
+      <button id="backBtn" class="menu-btn back-button hidden" type="button">BACK</button>
+    </header>
 
-    <button id="backBtn" class="menu-btn top-right-btn hidden" type="button">BACK</button>
-
-    <section id="mainMenu" class="app-state">
+    <section id="mainMenu" class="app-state screen">
       <div class="main-menu-panel panel">
         <button id="btn-play" class="menu-btn" type="button">PLAY</button>
         <button id="btn-maps" class="menu-btn" type="button">MAPS</button>
@@ -20,7 +21,7 @@
       </div>
     </section>
 
-    <section id="mapSelection" class="app-state hidden">
+    <section id="mapSelection" class="app-state screen">
       <div class="setup-layout">
         <div class="panel left-panel">
           <div class="section-chip">MODES</div>
@@ -50,7 +51,7 @@
       </div>
     </section>
 
-    <section id="teamSelection" class="app-state hidden">
+    <section id="teamSelection" class="app-state screen">
       <div class="setup-layout">
         <div class="panel left-panel team-panel">
           <div id="teamSectionTitle" class="section-chip">TEAM SELECTION</div>
@@ -76,7 +77,7 @@
       </div>
     </section>
 
-    <section id="playing" class="app-state hidden">
+    <section id="gameScreen" class="app-state screen">
       <div class="playing-shell">
         <div id="gameUI">
           <div class="playing-bar">MATCH IN PROGRESS</div>

@@ -1,4 +1,4 @@
-const APP_SECTIONS = ["mainMenu", "mapSelection", "teamSelection", "playing"];
+const APP_SECTIONS = ["mainMenu", "mapSelection", "teamSelection", "gameScreen"];
 const GAME_STATES = ["menu", "mapSelect", "lobby", "playing", "paused"];
 const WORLD_WIDTH = 3000;
 const WORLD_HEIGHT = 2000;
@@ -8,23 +8,40 @@ let units = [];
 let projectiles = [];
 let effects = [];
 
+function showScreen(screenId) {
+  document.querySelectorAll(".screen").forEach((screen) => {
+    screen.style.display = "none";
+  });
+
+  const nextScreen = document.getElementById(screenId);
+  if (nextScreen) {
+    nextScreen.style.display = "block";
+  }
+}
+
 function updateUIVisibility() {
   const sectionMap = {
     menu: "mainMenu",
     mapSelect: "mapSelection",
     lobby: "teamSelection",
-    playing: "playing",
-    paused: "playing",
+    playing: "gameScreen",
+    paused: "gameScreen",
   };
 
-  const activeSectionId = sectionMap[GAME_STATE] || null;
-  APP_SECTIONS.forEach((sectionId) => {
-    document.getElementById(sectionId)?.classList.toggle("hidden", sectionId !== activeSectionId);
-  });
+  const activeSectionId = sectionMap[GAME_STATE] || "mainMenu";
+  showScreen(activeSectionId);
 
   document.getElementById("sharedMapPanel")?.classList.toggle("hidden", GAME_STATE !== "mapSelect");
-  document.getElementById("loggedInDashboard")?.classList.toggle("hidden", GAME_STATE === "playing" || GAME_STATE === "paused");
-  document.getElementById("backBtn")?.classList.toggle("hidden", GAME_STATE === "menu" || GAME_STATE === "playing" || GAME_STATE === "paused");
+
+  const inMatch = GAME_STATE === "playing" || GAME_STATE === "paused";
+  document.getElementById("loggedInDashboard")?.classList.toggle("hidden", inMatch);
+  document.getElementById("devTools")?.classList.toggle("hidden", inMatch || !currentPlayer?.is_dev);
+  document.getElementById("backBtn")?.classList.toggle("hidden", GAME_STATE === "menu" || inMatch);
+}
+
+function enterGame() {
+  setGameState("playing");
+  document.getElementById("devTools")?.classList.add("hidden");
 }
 
 function setGameState(state) {
@@ -65,7 +82,7 @@ const GameManager = {
     units = [];
     projectiles = [];
     effects = [];
-    setGameState("playing");
+    enterGame();
     GameplayMapRenderer.init(getSelectedMap());
     updateDashboard();
   },
@@ -348,7 +365,7 @@ function setAppState(stateId) {
     mainMenu: "menu",
     mapSelection: "mapSelect",
     teamSelection: "lobby",
-    playing: "playing",
+    gameScreen: "playing",
   };
 
   const nextState = stateMap[stateId];
@@ -1103,7 +1120,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (GAME_STATE === "paused") {
-      setGameState("playing");
+      enterGame();
     }
   });
 
