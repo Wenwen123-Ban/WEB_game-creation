@@ -1,8 +1,33 @@
 const appStates = ["mainMenu", "mapSelection", "teamSelection", "playing"];
+const gameStates = ["menu", "setup", "playing", "paused", "gameOver"];
 let currentPlayer = null;
 
+const UIController = {
+  update() {
+    const state = GameManager.state;
+    const setupStep = GameManager.setupStep;
+
+    document.getElementById("mainMenu")?.classList.toggle("hidden", state !== "menu");
+    document
+      .getElementById("mapSelection")
+      ?.classList.toggle("hidden", !(state === "setup" && setupStep === "mapSelection"));
+    document
+      .getElementById("teamSelection")
+      ?.classList.toggle("hidden", !(state === "setup" && setupStep === "teamSelection"));
+    document.getElementById("playing")?.classList.toggle("hidden", state !== "playing");
+
+    const hideSetupPanels = state === "playing";
+    document.getElementById("sharedMapPanel")?.classList.toggle("hidden", hideSetupPanels || state !== "setup");
+    document.getElementById("loggedInDashboard")?.classList.toggle("hidden", hideSetupPanels);
+
+    document.getElementById("canvasContainer")?.classList.toggle("hidden", state !== "playing");
+    document.getElementById("backBtn")?.classList.toggle("hidden", state === "menu" || state === "playing");
+  },
+};
+
 const GameManager = {
-  state: "mainMenu",
+  state: gameStates[0],
+  setupStep: "mapSelection",
   selectedMode: null,
   selectedMap: null,
   playerCount: null,
@@ -12,7 +37,7 @@ const GameManager = {
     blue: [],
     red: [],
   },
-  async prepareMatch() {
+  async startMatch() {
     if (!currentPlayer) {
       showWarningPopup("You must be logged in before starting a match.");
       return;
@@ -29,8 +54,11 @@ const GameManager = {
     });
 
     this.state = "playing";
-    setAppState("playing");
+    UIController.update();
     updateDashboard();
+  },
+  async prepareMatch() {
+    await this.startMatch();
   },
 };
 
@@ -44,17 +72,20 @@ const AudioManager = {
 };
 
 function setAppState(stateId) {
-  appStates.forEach((state) => {
-    document.getElementById(state)?.classList.toggle("hidden", state !== stateId);
-  });
+  if (!appStates.includes(stateId)) {
+    return;
+  }
 
-  GameManager.state = stateId;
+  if (stateId === "mainMenu") {
+    GameManager.state = "menu";
+  } else if (stateId === "mapSelection" || stateId === "teamSelection") {
+    GameManager.state = "setup";
+    GameManager.setupStep = stateId;
+  } else if (stateId === "playing") {
+    GameManager.state = "playing";
+  }
 
-  const showMapPanel = stateId === "mapSelection" || stateId === "teamSelection";
-  document.getElementById("sharedMapPanel").classList.toggle("hidden", !showMapPanel);
-
-  const showBackBtn = stateId !== "mainMenu";
-  document.getElementById("backBtn").classList.toggle("hidden", !showBackBtn);
+  UIController.update();
 
   document.getElementById("settingsScene").classList.add("hidden");
 
@@ -62,15 +93,11 @@ function setAppState(stateId) {
     renderTeamSlots();
   }
 
-  if (stateId === "playing") {
-    document.getElementById("sharedMapPanel").classList.add("hidden");
-  }
-
   updateActionButtons();
 }
 
 function goBack() {
-  if (GameManager.state === "teamSelection") {
+  if (GameManager.state === "setup" && GameManager.setupStep === "teamSelection") {
     setAppState("mapSelection");
     return;
   }
@@ -639,7 +666,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    await GameManager.prepareMatch();
+    await GameManager.startMatch();
   });
 
   document.getElementById("loggedInBadge").addEventListener("click", openLoginPopup);

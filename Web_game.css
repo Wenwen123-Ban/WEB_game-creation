@@ -228,6 +228,8 @@ body {
 }
 
 .canvas-container {
+  position: relative;
+  z-index: 70;
   width: min(1100px, 94vw);
   height: min(72vh, 620px);
   margin: 0 auto;
