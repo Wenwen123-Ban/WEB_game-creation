@@ -7,14 +7,25 @@ const UIController = {
     const state = GameManager.state;
     const setupStep = GameManager.setupStep;
 
-    document.getElementById("mainMenu")?.classList.toggle("hidden", state !== "menu");
-    document
-      .getElementById("mapSelection")
-      ?.classList.toggle("hidden", !(state === "setup" && setupStep === "mapSelection"));
-    document
-      .getElementById("teamSelection")
-      ?.classList.toggle("hidden", !(state === "setup" && setupStep === "teamSelection"));
-    document.getElementById("playing")?.classList.toggle("hidden", state !== "playing");
+    const sectionMap = {
+      menu: "mainMenu",
+      mapSelection: "mapSelection",
+      teamSelection: "teamSelection",
+      playing: "playing",
+    };
+
+    const activeSectionId =
+      state === "menu"
+        ? sectionMap.menu
+        : state === "setup"
+          ? sectionMap[setupStep]
+          : state === "playing"
+            ? sectionMap.playing
+            : null;
+
+    appStates.forEach((sectionId) => {
+      document.getElementById(sectionId)?.classList.toggle("hidden", sectionId !== activeSectionId);
+    });
 
     const hideSetupPanels = state === "playing";
     document.getElementById("sharedMapPanel")?.classList.toggle("hidden", hideSetupPanels || state !== "setup");
@@ -158,6 +169,32 @@ const AudioManager = {
   mouseSensitivity: 1,
 };
 
+function getElementOrLog(elementId) {
+  const element = document.getElementById(elementId);
+  if (!element) {
+    console.error("Missing element:", elementId);
+    return null;
+  }
+  return element;
+}
+
+function addListenerById(elementId, eventName, handler) {
+  const element = getElementOrLog(elementId);
+  if (!element) {
+    return;
+  }
+  element.addEventListener(eventName, handler);
+}
+
+function getMapsOrLogError() {
+  if (!Array.isArray(window.MAPS) || window.MAPS.length === 0) {
+    console.error("MAPS is undefined or empty; skipping map preview rendering.");
+    return null;
+  }
+
+  return window.MAPS;
+}
+
 function setAppState(stateId) {
   if (!appStates.includes(stateId)) {
     return;
@@ -235,15 +272,30 @@ function openCustomTimePopup(button) {
 }
 
 function updateMapPreview() {
-  const map = MAPS[currentMapIndex];
+  const maps = getMapsOrLogError();
+  if (!maps) {
+    return;
+  }
+
+  const map = maps[currentMapIndex % maps.length];
   GameManager.selectedMapId = map.id;
-  document.getElementById("mapNameLabel").textContent = map.name.toUpperCase();
+  const mapNameLabel = getElementOrLog("mapNameLabel");
+  if (!mapNameLabel) {
+    return;
+  }
+
+  mapNameLabel.textContent = map.name.toUpperCase();
   renderMapPreview(map);
   updateActionButtons();
 }
 
 function getSelectedMap() {
-  return MAPS.find((map) => map.id === GameManager.selectedMapId) || MAPS[0];
+  const maps = getMapsOrLogError();
+  if (!maps) {
+    return null;
+  }
+
+  return maps.find((map) => map.id === GameManager.selectedMapId) || maps[0];
 }
 
 function drawStar(ctx, x, y, radius, color) {
@@ -305,7 +357,11 @@ function drawMapScene(ctx, map, viewport) {
 }
 
 function renderMapPreview(map) {
-  const previewContainer = document.getElementById("mapPreview");
+  const previewContainer = getElementOrLog("mapPreview");
+  if (!previewContainer) {
+    return;
+  }
+
   previewContainer.textContent = "";
 
   const previewCanvas = document.createElement("canvas");
@@ -803,27 +859,39 @@ document.addEventListener("DOMContentLoaded", () => {
   loadSettings();
   updateMapPreview();
 
-  document.getElementById("backBtn").addEventListener("click", goBack);
-  document.getElementById("btn-play").addEventListener("click", () => setAppState("mapSelection"));
-  document.getElementById("btn-maps").addEventListener("click", () => setAppState("mapSelection"));
-  document.getElementById("btn-settings").addEventListener("click", () => {
-    document.getElementById("settingsScene").classList.remove("hidden");
+  addListenerById("backBtn", "click", goBack);
+  addListenerById("btn-play", "click", () => setAppState("mapSelection"));
+  addListenerById("btn-maps", "click", () => setAppState("mapSelection"));
+  addListenerById("btn-settings", "click", () => {
+    const settingsScene = getElementOrLog("settingsScene");
+    settingsScene?.classList.remove("hidden");
   });
-  document.getElementById("btn-logout").addEventListener("click", logoutPlayer);
-  document.getElementById("btn-settings-close").addEventListener("click", () => {
-    document.getElementById("settingsScene").classList.add("hidden");
-  });
-
-  document.getElementById("btn-map-prev").addEventListener("click", () => {
-    currentMapIndex = (currentMapIndex - 1 + MAPS.length) % MAPS.length;
-    updateMapPreview();
-  });
-  document.getElementById("btn-map-next").addEventListener("click", () => {
-    currentMapIndex = (currentMapIndex + 1) % MAPS.length;
-    updateMapPreview();
+  addListenerById("btn-logout", "click", logoutPlayer);
+  addListenerById("btn-settings-close", "click", () => {
+    const settingsScene = getElementOrLog("settingsScene");
+    settingsScene?.classList.add("hidden");
   });
 
-  document.getElementById("confirmSetupBtn").addEventListener("click", () => {
+  addListenerById("btn-map-prev", "click", () => {
+    const maps = getMapsOrLogError();
+    if (!maps) {
+      return;
+    }
+
+    currentMapIndex = (currentMapIndex - 1 + maps.length) % maps.length;
+    updateMapPreview();
+  });
+  addListenerById("btn-map-next", "click", () => {
+    const maps = getMapsOrLogError();
+    if (!maps) {
+      return;
+    }
+
+    currentMapIndex = (currentMapIndex + 1) % maps.length;
+    updateMapPreview();
+  });
+
+  addListenerById("confirmSetupBtn", "click", () => {
     if (GameManager.selectedMode && GameManager.playerCount && GameManager.gameTime && GameManager.selectedMapId) {
       resetTeams();
       setAppState("teamSelection");
@@ -837,7 +905,7 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("click", () => joinTeam(btn.dataset.team));
   });
 
-  document.getElementById("startMatchBtn").addEventListener("click", async () => {
+  addListenerById("startMatchBtn", "click", async () => {
     if (!teamReady()) {
       showWarningPopup("Please complete a valid team assignment.");
       return;
@@ -846,9 +914,9 @@ document.addEventListener("DOMContentLoaded", () => {
     await GameManager.startMatch();
   });
 
-  document.getElementById("loggedInBadge").addEventListener("click", openLoginPopup);
-  document.getElementById("devSetGoldBtn").addEventListener("click", openSetDeveloperGoldPopup);
-  document.getElementById("devSendGoldBtn").addEventListener("click", openSendGoldPopup);
+  addListenerById("loggedInBadge", "click", openLoginPopup);
+  addListenerById("devSetGoldBtn", "click", openSetDeveloperGoldPopup);
+  addListenerById("devSendGoldBtn", "click", openSendGoldPopup);
 
   document.addEventListener("keydown", (event) => {
     GameplayMapRenderer.keyState[event.code] = true;
