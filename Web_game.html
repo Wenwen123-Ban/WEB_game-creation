@@ -10,11 +10,12 @@
   <div class="background">
     <h1 class="game-title">NAPOLEON TIMES</h1>
 
-    <div id="mainScene" class="scene">
+    <div id="mainMenu" class="screen">
       <div class="left-panel">
         <div class="menu-buttons" aria-label="Main menu actions">
           <button id="btn-play" class="menu-btn" type="button">PLAY</button>
           <button id="btn-saved-maps" class="menu-btn" type="button">SAVED MAPS</button>
+          <button id="btn-maps" class="menu-btn" type="button">MAPS</button>
           <button id="btn-settings" class="menu-btn" type="button">SETTINGS</button>
         </div>
 
@@ -34,7 +35,73 @@
       </div>
     </div>
 
-    <div id="settingsScene" class="scene" style="display: none;">
+    <div id="mapsScreen" class="screen hidden">
+      <div class="maps-layout">
+        <div class="section-banner">MAPS</div>
+
+        <div class="maps-cards" aria-label="Available maps">
+          <button class="map-card" data-map="Waterloo" type="button">
+            <span class="map-card-title">WATERLOO</span>
+            <span class="map-card-body"></span>
+          </button>
+          <button class="map-card" data-map="Desert Siege" type="button">
+            <span class="map-card-title">DESERT SIEGE</span>
+            <span class="map-card-body"></span>
+          </button>
+          <button class="map-card" data-map="Flat Land" type="button">
+            <span class="map-card-title">FLAT LAND</span>
+            <span class="map-card-body"></span>
+          </button>
+        </div>
+
+        <div class="maps-actions">
+          <button id="btn-maps-back" class="menu-btn" type="button">BACK</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="playSetupScreen" class="screen hidden">
+      <button id="btn-play-setup-back" class="menu-btn play-back" type="button">BACK</button>
+      <div class="play-layout">
+        <div class="play-left-panel">
+          <div class="section-chip">MODES</div>
+          <div class="choice-grid two-col">
+            <button class="menu-btn setup-choice" data-type="mode" data-value="VS BOT" type="button">VS BOT</button>
+            <button class="menu-btn setup-choice" data-type="mode" data-value="LAN" type="button">LAN</button>
+          </div>
+
+          <div class="section-chip">PLAYER NUMBERS</div>
+          <div class="choice-grid two-col">
+            <button class="menu-btn setup-choice" data-type="players" data-value="2" type="button">2</button>
+            <button class="menu-btn setup-choice" data-type="players" data-value="4" type="button">4</button>
+          </div>
+
+          <div class="section-chip">GAME TIME</div>
+          <div class="choice-grid two-col">
+            <button class="menu-btn setup-choice" data-type="time" data-value="5" type="button">5</button>
+            <button class="menu-btn setup-choice" data-type="time" data-value="10" type="button">10</button>
+            <button class="menu-btn setup-choice" data-type="time" data-value="15" type="button">15</button>
+            <button class="menu-btn setup-choice" data-type="time" data-value="20" type="button">20</button>
+            <button class="menu-btn setup-choice" data-type="time" data-value="30" type="button">30</button>
+            <button class="menu-btn setup-choice" data-type="time" data-value="Custom" type="button">CUSTOM</button>
+          </div>
+
+          <button id="btn-start-match" class="menu-btn start-btn" type="button">START</button>
+        </div>
+
+        <div class="play-right-panel">
+          <div class="section-banner">SELECTION OF MAPS</div>
+          <div id="playMapName" class="section-chip map-name-label">MAP NAME</div>
+          <div class="map-preview-wrapper">
+            <button id="btn-map-prev" class="arrow-btn" type="button" aria-label="Previous map">&#10094;</button>
+            <div id="mapPreview" class="map-preview-box"></div>
+            <button id="btn-map-next" class="arrow-btn" type="button" aria-label="Next map">&#10095;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="settingsScene" class="screen hidden">
       <div class="scene-panel settings-panel">
         <h2>SETTINGS</h2>
 
@@ -59,42 +126,6 @@
         <div class="scene-actions">
           <button id="btn-logout" class="menu-btn" type="button">LOGOUT</button>
           <button id="btn-settings-close" class="menu-btn popup-cancel" type="button">CLOSE</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="playScene" class="scene" style="display: none;">
-      <div class="scene-panel">
-        <h2>PLAY PREPARATION</h2>
-        <p>Select Mode:</p>
-        <div class="option-stack">
-          <button class="menu-btn" type="button">Bot Mode</button>
-          <button class="menu-btn" type="button">LAN (Coming Soon)</button>
-        </div>
-
-        <p>Team Selection:</p>
-        <div class="option-stack">
-          <button class="menu-btn" type="button">Blue</button>
-          <button class="menu-btn" type="button">Red</button>
-        </div>
-
-        <div class="scene-actions">
-          <button class="menu-btn" type="button">Confirm</button>
-          <button id="btn-play-back" class="menu-btn popup-cancel" type="button">Back</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="mapsScene" class="scene" style="display: none;">
-      <div class="scene-panel">
-        <h2>MAP SELECTION</h2>
-        <ul class="map-list">
-          <li>Waterloo Plains</li>
-          <li>Desert Siege</li>
-          <li>Forest Ambush</li>
-        </ul>
-        <div class="scene-actions">
-          <button id="btn-maps-back" class="menu-btn popup-cancel" type="button">Back</button>
         </div>
       </div>
     </div>

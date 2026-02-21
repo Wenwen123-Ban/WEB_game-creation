@@ -1,4 +1,14 @@
 let currentPlayer = null;
+let selectedMap = null;
+const maps = ["Waterloo", "Desert Siege", "Flat Land"];
+let currentMapIndex = 0;
+
+let gameSetup = {
+  map: null,
+  mode: null,
+  players: null,
+  time: null,
+};
 
 const AudioManager = {
   masterVolume: 1,
@@ -6,18 +16,14 @@ const AudioManager = {
   mouseSensitivity: 1,
 };
 
-function applyAudioToElement(audio) {
-  audio.volume = AudioManager.masterVolume * AudioManager.sfxVolume;
-}
-
-function showScene(sceneId) {
-  document.querySelectorAll(".scene").forEach((scene) => {
-    scene.style.display = "none";
+function showScreen(screenId) {
+  document.querySelectorAll(".screen").forEach((screen) => {
+    screen.classList.add("hidden");
   });
 
-  const targetScene = document.getElementById(sceneId);
-  if (targetScene) {
-    targetScene.style.display = "block";
+  const target = document.getElementById(screenId);
+  if (target) {
+    target.classList.remove("hidden");
   }
 }
 
@@ -97,7 +103,7 @@ function setupSettingsHandlers() {
     saveSettings();
   });
 
-  document.getElementById("btn-settings-close").addEventListener("click", () => showScene("mainScene"));
+  document.getElementById("btn-settings-close").addEventListener("click", () => showScreen("mainMenu"));
 }
 
 async function refreshAccountState() {
@@ -212,6 +218,28 @@ function createPopup({ title, fields, onSubmit, submitLabel = "Confirm" }) {
 
   if (fields.length > 0) {
     inputs[fields[0].name].focus();
+  }
+}
+
+function showWarningPopup(message) {
+  createPopup({
+    title: "Setup Warning",
+    fields: [],
+    submitLabel: "OK",
+    onSubmit: async () => {
+      closePopup();
+      return { message: "" };
+    },
+  });
+
+  const popupMessage = document.querySelector(".popup-message");
+  if (popupMessage) {
+    popupMessage.textContent = message;
+  }
+
+  const cancelBtn = document.querySelector(".popup-cancel");
+  if (cancelBtn) {
+    cancelBtn.textContent = "Close";
   }
 }
 
@@ -350,25 +378,157 @@ function openDevSendGoldPopup() {
   });
 }
 
+function setSelectedMap(mapName) {
+  selectedMap = mapName;
+  gameSetup.map = mapName;
+
+  const mapCards = document.querySelectorAll(".map-card");
+  mapCards.forEach((card) => {
+    card.classList.toggle("selected", card.dataset.map === mapName);
+  });
+
+  currentMapIndex = maps.indexOf(mapName);
+  if (currentMapIndex < 0) {
+    currentMapIndex = 0;
+  }
+  updateMapPreview();
+}
+
+function updateMapPreview() {
+  const currentMap = maps[currentMapIndex];
+  document.getElementById("playMapName").textContent = currentMap.toUpperCase();
+  document.getElementById("mapPreview").textContent = currentMap;
+  selectedMap = currentMap;
+  gameSetup.map = currentMap;
+
+  const mapCards = document.querySelectorAll(".map-card");
+  mapCards.forEach((card) => {
+    card.classList.toggle("selected", card.dataset.map === currentMap);
+  });
+}
+
+function setSetupChoice(type, value, button) {
+  const parsedValue = type === "players" || type === "time" ? Number(value) : value;
+  gameSetup[type] = parsedValue;
+
+  document
+    .querySelectorAll(`.setup-choice[data-type="${type}"]`)
+    .forEach((choiceButton) => choiceButton.classList.remove("active"));
+
+  button.classList.add("active");
+}
+
+function openCustomTimePopup(button) {
+  createPopup({
+    title: "Custom Game Time",
+    fields: [{ name: "minutes", placeholder: "Minutes", type: "number" }],
+    submitLabel: "Set",
+    onSubmit: async ({ minutes }) => {
+      const parsed = Number(minutes);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        throw new Error("Enter a valid number of minutes.");
+      }
+
+      setSetupChoice("time", parsed, button);
+      button.textContent = `${parsed}`;
+      closePopup();
+      return { message: "" };
+    },
+  });
+}
+
+async function handleStartMatch() {
+  if (!currentPlayer) {
+    showWarningPopup("You must be logged in before starting a match.");
+    return;
+  }
+
+  if (!gameSetup.map || !gameSetup.mode || !gameSetup.players || !gameSetup.time) {
+    showWarningPopup("Please select map, mode, player count, and game time.");
+    return;
+  }
+
+  try {
+    await apiPost("/create_match", {
+      host: currentPlayer.username,
+      map: gameSetup.map,
+      mode: gameSetup.mode,
+      players: gameSetup.players,
+      time: gameSetup.time,
+      status: "pending",
+    });
+
+    showWarningPopup("Match setup created successfully.");
+    showScreen("mainMenu");
+  } catch (error) {
+    showWarningPopup(error.message || "Failed to create match.");
+  }
+}
+
 async function logout() {
   await fetch("/logout", { method: "POST" });
   location.reload();
 }
 
 function setupSceneNavigation() {
-  document.getElementById("btn-settings").addEventListener("click", () => showScene("settingsScene"));
-  document.getElementById("btn-play").addEventListener("click", () => showScene("playScene"));
-  document.getElementById("btn-saved-maps").addEventListener("click", () => showScene("mapsScene"));
-  document.getElementById("btn-play-back").addEventListener("click", () => showScene("mainScene"));
-  document.getElementById("btn-maps-back").addEventListener("click", () => showScene("mainScene"));
+  document.getElementById("btn-settings").addEventListener("click", () => showScreen("settingsScene"));
+
+  document.getElementById("btn-play").addEventListener("click", () => {
+    showScreen("playSetupScreen");
+    updateMapPreview();
+  });
+
+  const openMaps = () => showScreen("mapsScreen");
+  document.getElementById("btn-saved-maps").addEventListener("click", openMaps);
+  document.getElementById("btn-maps").addEventListener("click", openMaps);
+
+  document.getElementById("btn-maps-back").addEventListener("click", () => showScreen("mainMenu"));
+  document.getElementById("btn-play-setup-back").addEventListener("click", () => showScreen("mainMenu"));
+
+  document.querySelectorAll(".map-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      setSelectedMap(card.dataset.map);
+    });
+  });
+
+  document.getElementById("btn-map-prev").addEventListener("click", () => {
+    currentMapIndex = (currentMapIndex - 1 + maps.length) % maps.length;
+    updateMapPreview();
+  });
+
+  document.getElementById("btn-map-next").addEventListener("click", () => {
+    currentMapIndex = (currentMapIndex + 1) % maps.length;
+    updateMapPreview();
+  });
+
+  document.querySelectorAll(".setup-choice").forEach((button) => {
+    button.addEventListener("click", () => {
+      const { type, value } = button.dataset;
+
+      if (type === "time" && value === "Custom") {
+        openCustomTimePopup(button);
+        return;
+      }
+
+      if (type === "time" && button.textContent !== "CUSTOM") {
+        const customButton = document.querySelector('.setup-choice[data-type="time"][data-value="Custom"]');
+        customButton.textContent = "CUSTOM";
+      }
+
+      setSetupChoice(type, value, button);
+    });
+  });
+
+  document.getElementById("btn-start-match").addEventListener("click", handleStartMatch);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  showScene("mainScene");
+  showScreen("mainMenu");
   clearDashboard();
   setupSettingsHandlers();
   loadSettings();
   setupSceneNavigation();
+  updateMapPreview();
   document.getElementById("btn-logout").addEventListener("click", logout);
   document.getElementById("loginBtn").addEventListener("click", openLoginPopup);
 });
