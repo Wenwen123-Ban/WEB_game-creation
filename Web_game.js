@@ -29,7 +29,7 @@ const GameManager = {
   state: gameStates[0],
   setupStep: "mapSelection",
   selectedMode: null,
-  selectedMap: null,
+  selectedMapId: null,
   playerCount: null,
   gameTime: null,
   selectedTeam: null,
@@ -45,7 +45,7 @@ const GameManager = {
 
     await apiPost("/create_match", {
       host: currentPlayer.username,
-      map: this.selectedMap,
+      map: this.selectedMapId,
       mode: this.selectedMode,
       players: this.playerCount,
       time: this.gameTime,
@@ -55,6 +55,7 @@ const GameManager = {
 
     this.state = "playing";
     UIController.update();
+    GameplayMapRenderer.init(getSelectedMap());
     updateDashboard();
   },
   async prepareMatch() {
@@ -62,8 +63,94 @@ const GameManager = {
   },
 };
 
-const maps = ["Waterloo", "Desert Siege", "Flat Land"];
 let currentMapIndex = 0;
+const MAP_PREVIEW_SIZE = 300;
+
+const mapBackgroundPalette = {
+  grass: "#a4cd8a",
+  desert: "#d8bf7b",
+  default: "#a4cd8a",
+};
+
+const GameplayMapRenderer = {
+  canvas: null,
+  context: null,
+  map: null,
+  camera: null,
+  keyState: {},
+  animationFrame: null,
+  speed: 14,
+  init(selectedMap) {
+    const container = document.getElementById("canvasContainer");
+    container.textContent = "";
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(700, container.clientWidth || 700);
+    canvas.height = Math.max(420, container.clientHeight || 420);
+    canvas.className = "gameplay-canvas";
+    container.appendChild(canvas);
+
+    this.canvas = canvas;
+    this.context = canvas.getContext("2d");
+    this.map = selectedMap;
+    this.camera = {
+      x: 0,
+      y: 0,
+      width: canvas.width,
+      height: canvas.height,
+    };
+
+    this.start();
+  },
+  start() {
+    cancelAnimationFrame(this.animationFrame);
+    const loop = () => {
+      this.updateCamera();
+      this.render();
+      this.animationFrame = requestAnimationFrame(loop);
+    };
+    loop();
+  },
+  updateCamera() {
+    if (!this.camera || !this.map) {
+      return;
+    }
+
+    if (this.keyState.ArrowUp || this.keyState.KeyW) this.camera.y -= this.speed;
+    if (this.keyState.ArrowDown || this.keyState.KeyS) this.camera.y += this.speed;
+    if (this.keyState.ArrowLeft || this.keyState.KeyA) this.camera.x -= this.speed;
+    if (this.keyState.ArrowRight || this.keyState.KeyD) this.camera.x += this.speed;
+
+    const maxX = Math.max(0, this.map.width - this.camera.width);
+    const maxY = Math.max(0, this.map.height - this.camera.height);
+    this.camera.x = Math.max(0, Math.min(this.camera.x, maxX));
+    this.camera.y = Math.max(0, Math.min(this.camera.y, maxY));
+  },
+  render() {
+    if (!this.context || !this.map) {
+      return;
+    }
+
+    const { context: ctx, map, camera } = this;
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    drawMapScene(ctx, map, {
+      sourceX: camera.x,
+      sourceY: camera.y,
+      sourceWidth: camera.width,
+      sourceHeight: camera.height,
+      destX: 0,
+      destY: 0,
+      destWidth: this.canvas.width,
+      destHeight: this.canvas.height,
+      withLabels: true,
+    });
+  },
+  teardown() {
+    cancelAnimationFrame(this.animationFrame);
+    this.animationFrame = null;
+  },
+};
 
 const AudioManager = {
   masterVolume: 1,
@@ -83,6 +170,10 @@ function setAppState(stateId) {
     GameManager.setupStep = stateId;
   } else if (stateId === "playing") {
     GameManager.state = "playing";
+  }
+
+  if (stateId !== "playing") {
+    GameplayMapRenderer.teardown();
   }
 
   UIController.update();
@@ -144,11 +235,97 @@ function openCustomTimePopup(button) {
 }
 
 function updateMapPreview() {
-  const map = maps[currentMapIndex];
-  GameManager.selectedMap = map;
-  document.getElementById("mapNameLabel").textContent = map.toUpperCase();
-  document.getElementById("mapPreview").textContent = map;
+  const map = MAPS[currentMapIndex];
+  GameManager.selectedMapId = map.id;
+  document.getElementById("mapNameLabel").textContent = map.name.toUpperCase();
+  renderMapPreview(map);
   updateActionButtons();
+}
+
+function getSelectedMap() {
+  return MAPS.find((map) => map.id === GameManager.selectedMapId) || MAPS[0];
+}
+
+function drawStar(ctx, x, y, radius, color) {
+  const spikes = 5;
+  const innerRadius = radius * 0.45;
+  let rotation = (Math.PI / 2) * 3;
+  const step = Math.PI / spikes;
+
+  ctx.beginPath();
+  ctx.moveTo(x, y - radius);
+
+  for (let i = 0; i < spikes; i += 1) {
+    ctx.lineTo(x + Math.cos(rotation) * radius, y + Math.sin(rotation) * radius);
+    rotation += step;
+    ctx.lineTo(x + Math.cos(rotation) * innerRadius, y + Math.sin(rotation) * innerRadius);
+    rotation += step;
+  }
+
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function drawMapScene(ctx, map, viewport) {
+  const {
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    destX,
+    destY,
+    destWidth,
+    destHeight,
+    withLabels,
+  } = viewport;
+
+  const scaleX = destWidth / sourceWidth;
+  const scaleY = destHeight / sourceHeight;
+
+  const toCanvasX = (realX) => destX + (realX - sourceX) * scaleX;
+  const toCanvasY = (realY) => destY + (realY - sourceY) * scaleY;
+
+  ctx.fillStyle = mapBackgroundPalette[map.background] || mapBackgroundPalette.default;
+  ctx.fillRect(destX, destY, destWidth, destHeight);
+
+  const blueSpawn = map.spawnPoints.blue;
+  const redSpawn = map.spawnPoints.red;
+  drawStar(ctx, toCanvasX(blueSpawn.x), toCanvasY(blueSpawn.y), 10, "#1f57d6");
+  drawStar(ctx, toCanvasX(redSpawn.x), toCanvasY(redSpawn.y), 10, "#d83131");
+
+  map.towns.forEach((town) => {
+    drawStar(ctx, toCanvasX(town.x), toCanvasY(town.y), 9, "#d83131");
+    if (withLabels) {
+      ctx.fillStyle = "#1b2a1a";
+      ctx.font = "14px Arial";
+      ctx.fillText(town.name, toCanvasX(town.x) + 10, toCanvasY(town.y) - 10);
+    }
+  });
+}
+
+function renderMapPreview(map) {
+  const previewContainer = document.getElementById("mapPreview");
+  previewContainer.textContent = "";
+
+  const previewCanvas = document.createElement("canvas");
+  previewCanvas.width = MAP_PREVIEW_SIZE;
+  previewCanvas.height = MAP_PREVIEW_SIZE;
+  previewCanvas.className = "map-preview-canvas";
+  previewContainer.appendChild(previewCanvas);
+
+  const ctx = previewCanvas.getContext("2d");
+  drawMapScene(ctx, map, {
+    sourceX: 0,
+    sourceY: 0,
+    sourceWidth: map.width,
+    sourceHeight: map.height,
+    destX: 0,
+    destY: 0,
+    destWidth: MAP_PREVIEW_SIZE,
+    destHeight: MAP_PREVIEW_SIZE,
+    withLabels: false,
+  });
 }
 
 function resetTeams() {
@@ -287,10 +464,10 @@ function setupChoiceBinding() {
 
 function updateActionButtons() {
   const confirmReady = Boolean(
-    GameManager.selectedMode &&
+      GameManager.selectedMode &&
       GameManager.playerCount &&
       GameManager.gameTime &&
-      GameManager.selectedMap,
+      GameManager.selectedMapId,
   );
 
   document.getElementById("confirmSetupBtn").disabled = !confirmReady;
@@ -638,16 +815,16 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("btn-map-prev").addEventListener("click", () => {
-    currentMapIndex = (currentMapIndex - 1 + maps.length) % maps.length;
+    currentMapIndex = (currentMapIndex - 1 + MAPS.length) % MAPS.length;
     updateMapPreview();
   });
   document.getElementById("btn-map-next").addEventListener("click", () => {
-    currentMapIndex = (currentMapIndex + 1) % maps.length;
+    currentMapIndex = (currentMapIndex + 1) % MAPS.length;
     updateMapPreview();
   });
 
   document.getElementById("confirmSetupBtn").addEventListener("click", () => {
-    if (GameManager.selectedMode && GameManager.playerCount && GameManager.gameTime && GameManager.selectedMap) {
+    if (GameManager.selectedMode && GameManager.playerCount && GameManager.gameTime && GameManager.selectedMapId) {
       resetTeams();
       setAppState("teamSelection");
       return;
@@ -672,6 +849,13 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("loggedInBadge").addEventListener("click", openLoginPopup);
   document.getElementById("devSetGoldBtn").addEventListener("click", openSetDeveloperGoldPopup);
   document.getElementById("devSendGoldBtn").addEventListener("click", openSendGoldPopup);
+
+  document.addEventListener("keydown", (event) => {
+    GameplayMapRenderer.keyState[event.code] = true;
+  });
+  document.addEventListener("keyup", (event) => {
+    GameplayMapRenderer.keyState[event.code] = false;
+  });
 });
 
 window.addEventListener("load", async () => {
