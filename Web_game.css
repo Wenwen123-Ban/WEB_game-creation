@@ -1,0 +1,246 @@
+:root {
+  --bg: #111419;
+  --panel: rgba(23, 28, 36, 0.9);
+  --panel-border: #2d3645;
+  --text: #e9eef6;
+  --muted: #98a4b5;
+  --gold: #d9b15b;
+  --gold-dark: #a98337;
+  --blue: #356dbe;
+  --red: #b83e3e;
+  --danger: #9c2c2c;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #1b2230 0%, var(--bg) 45%, #0a0d12 100%);
+  color: var(--text);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.background-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 35px 35px;
+}
+
+.app-container {
+  width: min(900px, 100%);
+  position: relative;
+  z-index: 1;
+}
+
+.screen {
+  display: none;
+}
+
+.screen.active {
+  display: block;
+  animation: fadeIn 280ms ease;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5);
+  border-radius: 16px;
+  padding: 28px;
+  backdrop-filter: blur(4px);
+}
+
+h1,
+h2 {
+  color: var(--gold);
+  margin-bottom: 8px;
+  letter-spacing: 0.6px;
+}
+
+.subtitle {
+  color: var(--muted);
+  margin-bottom: 20px;
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+
+input {
+  width: 100%;
+  border: 1px solid var(--panel-border);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  padding: 12px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(217, 177, 91, 0.25);
+}
+
+.button-row,
+.button-column {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.button-column {
+  flex-direction: column;
+}
+
+.btn {
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  background: #222937;
+  padding: 11px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 120ms ease, background 180ms ease, border-color 180ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: #58657b;
+  background: #2a3344;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-gold {
+  background: linear-gradient(180deg, var(--gold), var(--gold-dark));
+  color: #15120d;
+  border-color: #8d6a2a;
+  font-weight: 700;
+}
+
+.btn-gold:hover:not(:disabled) {
+  background: linear-gradient(180deg, #efc66f, #b88d39);
+}
+
+.btn-danger {
+  background: #5d2121;
+  border-color: #7f2f2f;
+}
+
+.player-stats,
+.summary-list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 20px;
+}
+
+.player-stats span,
+.summary-list span {
+  color: var(--muted);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.two-columns {
+  grid-template-columns: repeat(2, minmax(200px, 1fr));
+}
+
+.selection-card {
+  text-align: left;
+  border: 1px solid var(--panel-border);
+  background: rgba(15, 19, 26, 0.95);
+  color: var(--text);
+  padding: 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 180ms ease, transform 120ms ease, box-shadow 180ms ease;
+}
+
+.selection-card h3 {
+  margin-bottom: 8px;
+}
+
+.selection-card p {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.selection-card:hover:not(.locked) {
+  border-color: var(--gold);
+  transform: translateY(-1px);
+}
+
+.selection-card.selected {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(217, 177, 91, 0.2);
+}
+
+.selection-card.team-blue.selected {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(53, 109, 190, 0.26);
+}
+
+.selection-card.team-red.selected {
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px rgba(184, 62, 62, 0.26);
+}
+
+.selection-card.locked {
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
+.message {
+  margin-top: 12px;
+  min-height: 20px;
+  color: var(--muted);
+}
+
+.message.error {
+  color: #e88d8d;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 680px) {
+  .panel {
+    padding: 20px;
+  }
+
+  .two-columns {
+    grid-template-columns: 1fr;
+  }
+}
