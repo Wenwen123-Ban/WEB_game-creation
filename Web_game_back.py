@@ -11,6 +11,7 @@ app.permanent_session_lifetime = timedelta(days=7)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "database.json")
 TRANSACTION_PATH = os.path.join(BASE_DIR, "transaction.json")
+MATCHES_PATH = os.path.join(BASE_DIR, "matches.json")
 DEVELOPER_USERNAME = "NapoleonDev"
 DEVELOPER_PASSWORD = "devpassword123"
 
@@ -70,6 +71,21 @@ def ensure_transaction_ledger():
         json.dump(data, transaction_file, indent=2)
 
 
+def ensure_matches_file():
+    if not os.path.exists(MATCHES_PATH):
+        with open(MATCHES_PATH, "w", encoding="utf-8") as matches_file:
+            json.dump({"matches": []}, matches_file, indent=2)
+
+    with open(MATCHES_PATH, "r", encoding="utf-8") as matches_file:
+        data = json.load(matches_file)
+
+    if "matches" not in data or not isinstance(data["matches"], list):
+        data["matches"] = []
+
+    with open(MATCHES_PATH, "w", encoding="utf-8") as matches_file:
+        json.dump(data, matches_file, indent=2)
+
+
 def load_database():
     ensure_database()
     with open(DB_PATH, "r", encoding="utf-8") as db_file:
@@ -90,6 +106,17 @@ def load_transactions():
 def save_transactions(data):
     with open(TRANSACTION_PATH, "w", encoding="utf-8") as transaction_file:
         json.dump(data, transaction_file, indent=2)
+
+
+def load_matches():
+    ensure_matches_file()
+    with open(MATCHES_PATH, "r", encoding="utf-8") as matches_file:
+        return json.load(matches_file)
+
+
+def save_matches(data):
+    with open(MATCHES_PATH, "w", encoding="utf-8") as matches_file:
+        json.dump(data, matches_file, indent=2)
 
 
 def append_transaction(entry_type, from_user, to_user, amount):
@@ -296,7 +323,54 @@ def dev_send_gold():
     return jsonify({"success": True, "target": target_name, "amount": amount, "target_gold": target["gold"], "updated_gold": sender["gold"]})
 
 
+@app.route("/create_match", methods=["POST"])
+def create_match():
+    payload = request.get_json(silent=True) or {}
+    session_username = session.get("username")
+
+    if not session_username:
+        return jsonify({"success": False, "error": "You must be logged in."}), 401
+
+    host = (payload.get("host") or "").strip()
+    match_map = (payload.get("map") or "").strip()
+    mode = (payload.get("mode") or "").strip()
+    status = (payload.get("status") or "pending").strip() or "pending"
+
+    try:
+        players = _safe_int(payload.get("players"))
+        time_value = _safe_int(payload.get("time"))
+    except ValueError:
+        return jsonify({"success": False, "error": "Players and time must be valid integers."}), 400
+
+    if host != session_username:
+        return jsonify({"success": False, "error": "Host must match logged-in user."}), 403
+
+    if not match_map or not mode:
+        return jsonify({"success": False, "error": "Map and mode are required."}), 400
+
+    if players not in (2, 4):
+        return jsonify({"success": False, "error": "Players must be 2 or 4."}), 400
+
+    if time_value <= 0:
+        return jsonify({"success": False, "error": "Time must be greater than zero."}), 400
+
+    matches_data = load_matches()
+    new_match = {
+        "host": host,
+        "map": match_map,
+        "mode": mode,
+        "players": players,
+        "time": time_value,
+        "status": status,
+    }
+    matches_data["matches"].append(new_match)
+    save_matches(matches_data)
+
+    return jsonify({"success": True, "match": new_match}), 201
+
+
 if __name__ == "__main__":
     ensure_database()
     ensure_transaction_ledger()
+    ensure_matches_file()
     app.run(host="0.0.0.0", port=5000, debug=True)
