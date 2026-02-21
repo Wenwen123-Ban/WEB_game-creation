@@ -12,6 +12,7 @@ body {
 
 body {
   font-family: Georgia, "Times New Roman", serif;
+  overflow-y: auto;
 }
 
 .hidden {
@@ -258,6 +259,30 @@ body {
   gap: 12px;
 }
 
+#gameUI {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.in-game-hud {
+  width: min(420px, 90vw);
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+}
+
+#gameWorld {
+  position: relative;
+  overflow: auto;
+  width: min(1120px, 96vw);
+  max-height: min(74vh, 660px);
+  margin: 0 auto;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.1);
+}
+
 .playing-bar {
   width: min(420px, 90vw);
   margin: 0 auto;
@@ -270,9 +295,9 @@ body {
 .canvas-container {
   position: relative;
   z-index: 70;
-  width: min(1100px, 94vw);
-  height: min(72vh, 620px);
-  margin: 0 auto;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.2);
   color: #fff;
