@@ -1,117 +1,66 @@
 const GameState = {
-  currentScreen: "login",
   player: null,
   selectedMap: null,
-  selectedTeam: null,
-  teamConfirmed: false,
+  botMode: false,
 };
 
-const STORAGE_KEYS = {
-  accounts: "rtsAccounts",
-  session: "rtsActiveUser",
+const UI = {
+  authScreen: document.getElementById("screen-auth"),
+  menuScreen: document.getElementById("screen-main-menu"),
+  authMessage: document.getElementById("auth-message"),
+  authLoading: document.getElementById("auth-loading"),
+  menuMessage: document.getElementById("menu-message"),
+  usernameInput: document.getElementById("username-input"),
+  mapModal: document.getElementById("map-modal"),
 };
 
-// ====================
-// ACCOUNT SYSTEM
-// ====================
-function getAccounts() {
-  const raw = localStorage.getItem(STORAGE_KEYS.accounts);
-  return raw ? JSON.parse(raw) : {};
-}
+async function apiRequest(url, payload) {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-function saveAccounts(accounts) {
-  localStorage.setItem(STORAGE_KEYS.accounts, JSON.stringify(accounts));
-}
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, message: data.error || "Request failed" };
+    }
 
-function createAccount(username) {
-  const accounts = getAccounts();
-
-  if (accounts[username]) {
-    return { success: false, message: "Account already exists." };
+    return { success: true, data };
+  } catch (error) {
+    alert("Server offline");
+    return { success: false, message: "Server offline" };
   }
-
-  accounts[username] = {
-    username,
-    level: 1,
-    xp: 0,
-    gold: 1000,
-    wins: 0,
-    losses: 0,
-    unlockedUnits: ["Riflemen"],
-  };
-
-  saveAccounts(accounts);
-  return { success: true, player: accounts[username] };
 }
 
-function login(username) {
-  const accounts = getAccounts();
-  const player = accounts[username];
-
-  if (!player) {
-    return { success: false, message: "No account found for that username." };
-  }
-
-  GameState.player = player;
-  localStorage.setItem(STORAGE_KEYS.session, username);
-  updateMainMenuStats();
-  resetPreMatchSelection();
-  showScreen("screen-main-menu");
-  return { success: true };
+function setAuthLoading(isLoading) {
+  UI.authLoading.classList.toggle("hidden", !isLoading);
+  document.getElementById("btn-register").disabled = isLoading;
+  document.getElementById("btn-login").disabled = isLoading;
 }
 
-function savePlayerData() {
-  if (!GameState.player) {
+function setAuthMessage(message = "", isError = false) {
+  UI.authMessage.textContent = message;
+  UI.authMessage.classList.toggle("error", isError);
+}
+
+function setMenuMessage(message = "", isError = false) {
+  UI.menuMessage.textContent = message;
+  UI.menuMessage.classList.toggle("error", isError);
+}
+
+function showScreen(screenName) {
+  UI.authScreen.classList.remove("active");
+  UI.menuScreen.classList.remove("active");
+  if (screenName === "menu") {
+    UI.menuScreen.classList.add("active");
     return;
   }
-
-  const accounts = getAccounts();
-  accounts[GameState.player.username] = GameState.player;
-  saveAccounts(accounts);
+  UI.authScreen.classList.add("active");
 }
 
-function loadPlayerData() {
-  const activeUser = localStorage.getItem(STORAGE_KEYS.session);
-  if (!activeUser) {
-    return false;
-  }
-
-  const accounts = getAccounts();
-  if (!accounts[activeUser]) {
-    localStorage.removeItem(STORAGE_KEYS.session);
-    return false;
-  }
-
-  GameState.player = accounts[activeUser];
-  updateMainMenuStats();
-  resetPreMatchSelection();
-  showScreen("screen-main-menu");
-  return true;
-}
-
-function logout() {
-  localStorage.removeItem(STORAGE_KEYS.session);
-  GameState.player = null;
-  resetPreMatchSelection();
-  showScreen("screen-login");
-}
-
-// ====================
-// SCREEN MANAGEMENT
-// ====================
-function showScreen(screenId) {
-  document.querySelectorAll(".screen").forEach((screen) => {
-    screen.classList.remove("active");
-  });
-
-  const target = document.getElementById(screenId);
-  if (target) {
-    target.classList.add("active");
-    GameState.currentScreen = screenId.replace("screen-", "");
-  }
-}
-
-function updateMainMenuStats() {
+function renderPlayerStats() {
   if (!GameState.player) {
     return;
   }
@@ -120,189 +69,157 @@ function updateMainMenuStats() {
   document.getElementById("stat-level").textContent = GameState.player.level;
   document.getElementById("stat-xp").textContent = GameState.player.xp;
   document.getElementById("stat-gold").textContent = GameState.player.gold;
-  document.getElementById("stat-record").textContent = `${GameState.player.wins}W / ${GameState.player.losses}L`;
+  document.getElementById("stat-record").textContent = `${GameState.player.wins} / ${GameState.player.losses}`;
 }
 
-function updateSummaryScreen() {
-  document.getElementById("summary-player").textContent = GameState.player?.username || "-";
-  document.getElementById("summary-map").textContent = GameState.selectedMap || "-";
-  document.getElementById("summary-team").textContent = GameState.selectedTeam || "-";
+async function registerPlayer(username) {
+  setAuthLoading(true);
+  setAuthMessage("");
+
+  const result = await apiRequest("/api/register", { username });
+  setAuthLoading(false);
+
+  if (!result.success) {
+    setAuthMessage(result.message, true);
+    return;
+  }
+
+  GameState.player = result.data.player;
+  renderPlayerStats();
+  showScreen("menu");
 }
 
-function resetPreMatchSelection() {
+async function loginPlayer(username) {
+  setAuthLoading(true);
+  setAuthMessage("");
+
+  const result = await apiRequest("/api/login", { username });
+  setAuthLoading(false);
+
+  if (!result.success) {
+    setAuthMessage(result.message, true);
+    return;
+  }
+
+  GameState.player = result.data.player;
+  renderPlayerStats();
+  showScreen("menu");
+}
+
+async function persistPlayer() {
+  if (!GameState.player) {
+    return false;
+  }
+
+  const result = await apiRequest("/api/update-player", { player: GameState.player });
+  return result.success;
+}
+
+function resetSession() {
+  GameState.player = null;
   GameState.selectedMap = null;
-  GameState.selectedTeam = null;
-  GameState.teamConfirmed = false;
-
-  document.querySelectorAll("#map-cards .selection-card").forEach((card) => {
-    card.classList.remove("selected");
-    card.setAttribute("aria-checked", "false");
-  });
-
-  document.querySelectorAll("#team-cards .selection-card").forEach((card) => {
-    card.classList.remove("selected", "locked");
-    card.removeAttribute("disabled");
-    card.setAttribute("aria-checked", "false");
-  });
-
-  document.getElementById("btn-map-continue").disabled = true;
-  document.getElementById("btn-team-confirm").disabled = true;
-  document.getElementById("btn-team-continue").disabled = true;
-  document.getElementById("team-lock-message").textContent = "";
-  document.getElementById("summary-message").textContent = "";
+  GameState.botMode = false;
+  UI.usernameInput.value = "";
+  setAuthMessage("");
+  setMenuMessage("");
+  showScreen("auth");
 }
 
-// ====================
-// MAP SELECTION
-// ====================
-function handleMapSelection(event) {
-  const selectedCard = event.target.closest(".selection-card");
-  if (!selectedCard) {
+function openMapModal() {
+  UI.mapModal.classList.remove("hidden");
+}
+
+function closeMapModal() {
+  UI.mapModal.classList.add("hidden");
+}
+
+function selectMap(card) {
+  document.querySelectorAll(".map-card").forEach((entry) => {
+    entry.classList.toggle("selected", entry === card);
+  });
+  GameState.selectedMap = card.dataset.map;
+  setMenuMessage(`Selected map: ${GameState.selectedMap}`);
+  closeMapModal();
+}
+
+async function handlePlay() {
+  if (!GameState.selectedMap) {
+    setMenuMessage("Select a map before starting Play.", true);
     return;
   }
 
-  document.querySelectorAll("#map-cards .selection-card").forEach((card) => {
-    card.classList.toggle("selected", card === selectedCard);
-    card.setAttribute("aria-checked", String(card === selectedCard));
-  });
+  GameState.player.xp += 20;
+  GameState.player.gold += 50;
+  const saved = await persistPlayer();
 
-  GameState.selectedMap = selectedCard.dataset.map;
-  document.getElementById("btn-map-continue").disabled = false;
-}
-
-// ====================
-// TEAM SELECTION
-// ====================
-function handleTeamSelection(event) {
-  const selectedCard = event.target.closest(".selection-card");
-  if (!selectedCard || GameState.teamConfirmed) {
+  if (!saved) {
+    setMenuMessage("Could not sync player progress.", true);
     return;
   }
 
-  document.querySelectorAll("#team-cards .selection-card").forEach((card) => {
-    card.classList.toggle("selected", card === selectedCard);
-    card.setAttribute("aria-checked", String(card === selectedCard));
-  });
-
-  GameState.selectedTeam = selectedCard.dataset.team;
-  document.getElementById("btn-team-confirm").disabled = false;
+  renderPlayerStats();
+  setMenuMessage(`Deployment ready on ${GameState.selectedMap}. Progress saved.`);
 }
 
-function confirmTeamSelection() {
-  if (!GameState.selectedTeam) {
+async function handleBotMode() {
+  GameState.botMode = !GameState.botMode;
+  GameState.player.wins += 1;
+  GameState.player.xp += 10;
+
+  const saved = await persistPlayer();
+  if (!saved) {
+    setMenuMessage("Bot mode update failed.", true);
     return;
   }
 
-  GameState.teamConfirmed = true;
-  const cards = document.querySelectorAll("#team-cards .selection-card");
-  cards.forEach((card) => {
-    card.classList.add("locked");
-    card.setAttribute("disabled", "true");
-  });
-
-  document.getElementById("team-lock-message").textContent = `Team locked: ${GameState.selectedTeam}`;
-  document.getElementById("btn-team-confirm").disabled = true;
-  document.getElementById("btn-team-continue").disabled = false;
-}
-
-// ====================
-// EVENT WIRING
-// ====================
-function setLoginError(message = "") {
-  document.getElementById("login-error").textContent = message;
+  renderPlayerStats();
+  setMenuMessage(`Bot Mode ${GameState.botMode ? "enabled" : "disabled"}.`);
 }
 
 function initEventListeners() {
-  const usernameInput = document.getElementById("username-input");
-
-  document.getElementById("btn-create-account").addEventListener("click", () => {
-    const username = usernameInput.value.trim();
+  document.getElementById("btn-register").addEventListener("click", async () => {
+    const username = UI.usernameInput.value.trim();
     if (!username) {
-      setLoginError("Please enter a username.");
+      setAuthMessage("Please enter a username.", true);
       return;
     }
-
-    const result = createAccount(username);
-    if (!result.success) {
-      setLoginError(result.message);
-      return;
-    }
-
-    setLoginError("Account created. Logging in...");
-    login(username);
+    await registerPlayer(username);
   });
 
-  document.getElementById("btn-login").addEventListener("click", () => {
-    const username = usernameInput.value.trim();
+  document.getElementById("btn-login").addEventListener("click", async () => {
+    const username = UI.usernameInput.value.trim();
     if (!username) {
-      setLoginError("Please enter a username.");
+      setAuthMessage("Please enter a username.", true);
       return;
     }
+    await loginPlayer(username);
+  });
 
-    const result = login(username);
-    if (!result.success) {
-      setLoginError(result.message);
+  document.getElementById("btn-logout").addEventListener("click", resetSession);
+  document.getElementById("btn-play").addEventListener("click", handlePlay);
+  document.getElementById("btn-select-map").addEventListener("click", openMapModal);
+  document.getElementById("btn-close-map").addEventListener("click", closeMapModal);
+  document.getElementById("btn-bot-mode").addEventListener("click", handleBotMode);
+
+  document.getElementById("btn-profile").addEventListener("click", () => {
+    if (!GameState.player) {
       return;
     }
-
-    setLoginError("");
+    setMenuMessage(`Commander ${GameState.player.username} profile loaded.`);
   });
 
-  document.getElementById("btn-play").addEventListener("click", () => {
-    showScreen("screen-map-select");
-  });
-
-  document.getElementById("btn-logout").addEventListener("click", () => {
-    logout();
-  });
-
-  document.getElementById("btn-map-back").addEventListener("click", () => {
-    showScreen("screen-main-menu");
-  });
-
-  document.getElementById("btn-map-continue").addEventListener("click", () => {
-    if (!GameState.selectedMap) {
+  document.getElementById("map-cards").addEventListener("click", (event) => {
+    const button = event.target.closest(".map-select-btn");
+    if (!button) {
       return;
     }
-    showScreen("screen-team-select");
-  });
-
-  document.getElementById("map-cards").addEventListener("click", handleMapSelection);
-  document.getElementById("team-cards").addEventListener("click", handleTeamSelection);
-
-  document.getElementById("btn-team-back").addEventListener("click", () => {
-    showScreen("screen-map-select");
-  });
-
-  document.getElementById("btn-team-confirm").addEventListener("click", confirmTeamSelection);
-
-  document.getElementById("btn-team-continue").addEventListener("click", () => {
-    if (!GameState.teamConfirmed) {
-      return;
-    }
-
-    updateSummaryScreen();
-    showScreen("screen-summary");
-  });
-
-  document.getElementById("btn-summary-main").addEventListener("click", () => {
-    resetPreMatchSelection();
-    showScreen("screen-main-menu");
-  });
-
-  document.getElementById("btn-start-match").addEventListener("click", () => {
-    document.getElementById("summary-message").textContent = "Gameplay engine not implemented yet.";
-    savePlayerData();
+    selectMap(button.closest(".map-card"));
   });
 }
 
 function initializeApp() {
   initEventListeners();
-  const loaded = loadPlayerData();
-
-  if (!loaded) {
-    showScreen("screen-login");
-  }
+  showScreen("auth");
 }
 
 document.addEventListener("DOMContentLoaded", initializeApp);

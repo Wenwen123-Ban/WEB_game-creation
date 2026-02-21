@@ -3,120 +3,96 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Napoleonic RTS - Phase 1</title>
+  <title>Napoleonic RTS Command</title>
   <link rel="stylesheet" href="Web_game.css" />
 </head>
 <body>
-  <div class="background-overlay"></div>
+  <div class="background-overlay" aria-hidden="true"></div>
 
-  <main class="app-container">
-    <section id="screen-login" class="screen active" aria-labelledby="login-title">
-      <div class="panel">
-        <h1 id="login-title">Napoleonic RTS</h1>
-        <p class="subtitle">Phase 1 Command Interface</p>
+  <main class="app-shell">
+    <section id="screen-auth" class="screen active">
+      <div class="panel auth-panel">
+        <h1 class="game-title">Napoleonic RTS</h1>
+        <p class="subtitle">Establish your command profile to enter the war room.</p>
 
-        <label for="username-input">Username</label>
+        <label for="username-input">Commander Name</label>
         <input id="username-input" type="text" maxlength="20" placeholder="Enter commander name" />
 
         <div class="button-row">
-          <button id="btn-create-account" class="btn btn-gold">Create Account</button>
+          <button id="btn-register" class="btn btn-gold">Register</button>
           <button id="btn-login" class="btn">Login</button>
         </div>
 
-        <p id="login-error" class="message error" aria-live="polite"></p>
+        <div id="auth-loading" class="loading hidden" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Contacting command server...</span>
+        </div>
+
+        <p id="auth-message" class="message" aria-live="polite"></p>
       </div>
     </section>
 
-    <section id="screen-main-menu" class="screen" aria-labelledby="main-menu-title">
+    <section id="screen-main-menu" class="screen">
       <div class="panel">
-        <h2 id="main-menu-title">Main Menu</h2>
-        <div class="player-stats">
-          <p><span>Commander:</span> <strong id="stat-username">-</strong></p>
-          <p><span>Level:</span> <strong id="stat-level">1</strong></p>
-          <p><span>XP:</span> <strong id="stat-xp">0</strong></p>
-          <p><span>Gold:</span> <strong id="stat-gold">1000</strong></p>
-          <p><span>Record:</span> <strong id="stat-record">0W / 0L</strong></p>
-        </div>
+        <h1 class="game-title">Napoleonic RTS</h1>
+        <p class="subtitle">Strategic Theater Operations</p>
 
-        <div class="button-column">
+        <section class="commander-panel" aria-label="Commander Info Panel">
+          <h2>Commander Info Panel</h2>
+          <div class="stats-grid">
+            <p><span>Commander</span><strong id="stat-username">-</strong></p>
+            <p><span>Level</span><strong id="stat-level">1</strong></p>
+            <p><span>XP</span><strong id="stat-xp">0</strong></p>
+            <p><span>Gold</span><strong id="stat-gold">1000</strong></p>
+            <p><span>Wins / Losses</span><strong id="stat-record">0 / 0</strong></p>
+          </div>
+        </section>
+
+        <nav class="menu-column" aria-label="Main menu actions">
           <button id="btn-play" class="btn btn-gold">Play</button>
-          <button id="btn-profile" class="btn" disabled>Profile (Coming Soon)</button>
+          <button id="btn-select-map" class="btn">Select Map</button>
+          <button id="btn-bot-mode" class="btn">Bot Mode</button>
+          <button id="btn-multiplayer" class="btn" disabled>Multiplayer (Coming Soon)</button>
+          <button id="btn-profile" class="btn">Profile</button>
           <button id="btn-logout" class="btn btn-danger">Logout</button>
-        </div>
-      </div>
-    </section>
+        </nav>
 
-    <section id="screen-map-select" class="screen" aria-labelledby="map-select-title">
-      <div class="panel">
-        <h2 id="map-select-title">Map Selection</h2>
-        <p class="subtitle">Choose your battlefield.</p>
-
-        <div id="map-cards" class="card-grid" role="radiogroup" aria-label="Map choices">
-          <button class="selection-card" data-map="Plains Battlefield" role="radio" aria-checked="false">
-            <h3>Plains Battlefield</h3>
-            <p>Open lanes for direct engagement.</p>
-          </button>
-          <button class="selection-card" data-map="Forest Edge" role="radio" aria-checked="false">
-            <h3>Forest Edge</h3>
-            <p>Tight flanks and hidden approaches.</p>
-          </button>
-          <button class="selection-card" data-map="Fort Siege" role="radio" aria-checked="false">
-            <h3>Fort Siege</h3>
-            <p>Defensive lines and choke points.</p>
-          </button>
-        </div>
-
-        <div class="button-row">
-          <button id="btn-map-back" class="btn">Back</button>
-          <button id="btn-map-continue" class="btn btn-gold" disabled>Continue</button>
-        </div>
-      </div>
-    </section>
-
-    <section id="screen-team-select" class="screen" aria-labelledby="team-select-title">
-      <div class="panel">
-        <h2 id="team-select-title">Team Selection</h2>
-        <p class="subtitle">Pick a side. Selection locks after confirmation.</p>
-
-        <div id="team-cards" class="card-grid two-columns" role="radiogroup" aria-label="Team choices">
-          <button class="selection-card team-blue" data-team="Blue Team" role="radio" aria-checked="false">
-            <h3>Blue Team</h3>
-            <p>Royal command colors.</p>
-          </button>
-          <button class="selection-card team-red" data-team="Red Team" role="radio" aria-checked="false">
-            <h3>Red Team</h3>
-            <p>Imperial battle colors.</p>
-          </button>
-        </div>
-
-        <p id="team-lock-message" class="message"></p>
-
-        <div class="button-row">
-          <button id="btn-team-back" class="btn">Back</button>
-          <button id="btn-team-confirm" class="btn btn-gold" disabled>Confirm Team</button>
-          <button id="btn-team-continue" class="btn" disabled>Continue</button>
-        </div>
-      </div>
-    </section>
-
-    <section id="screen-summary" class="screen" aria-labelledby="summary-title">
-      <div class="panel">
-        <h2 id="summary-title">Match Summary</h2>
-        <div class="summary-list">
-          <p><span>Commander:</span> <strong id="summary-player">-</strong></p>
-          <p><span>Map:</span> <strong id="summary-map">-</strong></p>
-          <p><span>Team:</span> <strong id="summary-team">-</strong></p>
-          <p><span>Opponent:</span> <strong>Bot Opponent Enabled</strong></p>
-        </div>
-
-        <div class="button-row">
-          <button id="btn-start-match" class="btn btn-gold">Start Match</button>
-          <button id="btn-summary-main" class="btn">Back to Main Menu</button>
-        </div>
-        <p id="summary-message" class="message" aria-live="polite"></p>
+        <p id="menu-message" class="message"></p>
       </div>
     </section>
   </main>
+
+  <div id="map-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+    <div class="modal-panel">
+      <h2 id="map-modal-title">Select Battlefield</h2>
+      <p class="subtitle">Choose your next campaign map.</p>
+
+      <div id="map-cards" class="map-grid">
+        <article class="map-card" data-map="Rhine Plains">
+          <h3>Rhine Plains</h3>
+          <p>Broad terrain for disciplined line infantry formations.</p>
+          <p class="difficulty">Difficulty: Easy</p>
+          <button class="btn map-select-btn">Select</button>
+        </article>
+        <article class="map-card" data-map="Iberian Pass">
+          <h3>Iberian Pass</h3>
+          <p>Mountain choke routes with vulnerable artillery lines.</p>
+          <p class="difficulty">Difficulty: Medium</p>
+          <button class="btn map-select-btn">Select</button>
+        </article>
+        <article class="map-card" data-map="Alpine Fortress">
+          <h3>Alpine Fortress</h3>
+          <p>Harsh weather and fortified positions demand careful tactics.</p>
+          <p class="difficulty">Difficulty: Hard</p>
+          <button class="btn map-select-btn">Select</button>
+        </article>
+      </div>
+
+      <div class="button-row">
+        <button id="btn-close-map" class="btn">Close</button>
+      </div>
+    </div>
+  </div>
 
   <script src="Web_game.js"></script>
 </body>
