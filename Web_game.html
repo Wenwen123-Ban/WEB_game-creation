@@ -10,61 +10,18 @@
   <div class="background">
     <h1 class="game-title">NAPOLEON TIMES</h1>
 
-    <div id="topBar">
-      <button id="backBtn" class="menu-btn topbar-btn hidden" type="button">BACK</button>
-      <button id="loggedInBadge" class="menu-btn topbar-btn" type="button">LOG IN</button>
-    </div>
+    <button id="backBtn" class="menu-btn top-right-btn hidden" type="button">BACK</button>
 
-    <div id="mainMenu" class="screen">
-      <div class="left-panel">
-        <div class="menu-buttons" aria-label="Main menu actions">
-          <button id="btn-play" class="menu-btn" type="button">PLAY</button>
-          <button id="btn-saved-maps" class="menu-btn" type="button">SAVED MAPS</button>
-          <button id="btn-maps" class="menu-btn" type="button">MAPS</button>
-          <button id="btn-settings" class="menu-btn" type="button">SETTINGS</button>
-        </div>
-
-        <div id="statsPanel" class="stats-box" aria-label="Player stats">
-          <h2>START</h2>
-          <p><span class="label">PLAYER:</span> <span id="playerName">Guest</span></p>
-          <p><span class="label">GOLD:</span> <span id="goldValue">0</span></p>
-          <p><span class="label">XP:</span> <span id="xpValue">0</span></p>
-          <p><span class="label">LEVEL:</span> <span id="levelValue">1</span></p>
-          <p><span class="label">WINS:</span> <span id="winsValue">0</span></p>
-          <p><span class="label">LOSSES:</span> <span id="lossValue">0</span></p>
-          <p><span class="label">TOTAL MATCHES:</span> <span id="totalMatchesValue">0</span></p>
-          <p><span class="label">TOTAL DEPLOYED UNITS:</span> <span id="totalUnitsValue">0</span></p>
-        </div>
-
-        <div id="devButtonsContainer" style="display: none;"></div>
+    <section id="mainMenu" class="app-state">
+      <div class="main-menu-panel panel">
+        <button id="btn-play" class="menu-btn" type="button">PLAY</button>
+        <button id="btn-settings" class="menu-btn" type="button">SETTINGS</button>
       </div>
-    </div>
+    </section>
 
-    <div id="mapsScreen" class="screen hidden">
-      <div class="maps-layout">
-        <div class="section-banner">MAPS</div>
-
-        <div class="maps-cards" aria-label="Available maps">
-          <button class="map-card" data-map="Waterloo" type="button">
-            <span class="map-card-title">WATERLOO</span>
-            <span class="map-card-body"></span>
-          </button>
-          <button class="map-card" data-map="Desert Siege" type="button">
-            <span class="map-card-title">DESERT SIEGE</span>
-            <span class="map-card-body"></span>
-          </button>
-          <button class="map-card" data-map="Flat Land" type="button">
-            <span class="map-card-title">FLAT LAND</span>
-            <span class="map-card-body"></span>
-          </button>
-        </div>
-
-      </div>
-    </div>
-
-    <div id="playSetupScreen" class="screen hidden">
-      <div class="play-layout">
-        <div class="play-left-panel">
+    <section id="mapSelection" class="app-state hidden">
+      <div class="setup-layout">
+        <div class="panel left-panel">
           <div class="section-chip">MODES</div>
           <div class="choice-grid two-col">
             <button class="menu-btn setup-choice" data-type="mode" data-value="VS BOT" type="button">VS BOT</button>
@@ -73,62 +30,85 @@
 
           <div class="section-chip">PLAYER NUMBERS</div>
           <div class="choice-grid two-col">
-            <button class="menu-btn setup-choice" data-type="players" data-value="2" type="button">2</button>
-            <button class="menu-btn setup-choice" data-type="players" data-value="4" type="button">4</button>
+            <button class="menu-btn setup-choice" data-type="playerCount" data-value="2" type="button">1 V 1</button>
+            <button class="menu-btn setup-choice" data-type="playerCount" data-value="4" type="button">2 V 2</button>
           </div>
 
           <div class="section-chip">GAME TIME</div>
           <div class="choice-grid two-col">
-            <button class="menu-btn setup-choice" data-type="time" data-value="5" type="button">5</button>
-            <button class="menu-btn setup-choice" data-type="time" data-value="10" type="button">10</button>
-            <button class="menu-btn setup-choice" data-type="time" data-value="15" type="button">15</button>
-            <button class="menu-btn setup-choice" data-type="time" data-value="20" type="button">20</button>
-            <button class="menu-btn setup-choice" data-type="time" data-value="30" type="button">30</button>
-            <button class="menu-btn setup-choice" data-type="time" data-value="Custom" type="button">CUSTOM</button>
+            <button class="menu-btn setup-choice" data-type="gameTime" data-value="15" type="button">15 MINUTES</button>
+            <button class="menu-btn setup-choice" data-type="gameTime" data-value="10" type="button">10 MINUTES</button>
+            <button class="menu-btn setup-choice" data-type="gameTime" data-value="30" type="button">30 MINUTES</button>
+            <button class="menu-btn setup-choice" data-type="gameTime" data-value="20" type="button">20 MINUTES</button>
+            <button class="menu-btn setup-choice" data-type="gameTime" data-value="5" type="button">5 MINUTES</button>
+            <button id="customTimeBtn" class="menu-btn setup-choice" data-type="gameTime" data-value="Custom" type="button">CUSTOM TIME</button>
           </div>
 
-          <button id="btn-start-match" class="menu-btn start-btn" type="button">START</button>
+          <button id="confirmSetupBtn" class="menu-btn action-btn" type="button" disabled>CONFIRM</button>
         </div>
+      </div>
+    </section>
 
-        <div class="play-right-panel">
-          <div class="section-banner">SELECTION OF MAPS</div>
-          <div id="playMapName" class="section-chip map-name-label">MAP NAME</div>
-          <div class="map-preview-wrapper">
-            <button id="btn-map-prev" class="arrow-btn" type="button" aria-label="Previous map">&#10094;</button>
-            <div id="mapPreview" class="map-preview-box"></div>
-            <button id="btn-map-next" class="arrow-btn" type="button" aria-label="Next map">&#10095;</button>
+    <section id="teamSelection" class="app-state hidden">
+      <div class="setup-layout">
+        <div class="panel left-panel team-panel">
+          <div id="teamSectionTitle" class="section-chip">TEAM SELECTION</div>
+
+          <div class="team-block" data-team="blue">
+            <div class="team-header-row">
+              <div class="section-chip team-name">BLUE TEAM</div>
+              <button class="menu-btn join-btn" data-team="blue" type="button">JOIN</button>
+            </div>
+            <ol id="blueTeamList" class="team-list"></ol>
           </div>
+
+          <div class="team-block" data-team="red">
+            <div class="team-header-row">
+              <div class="section-chip team-name">RED TEAM</div>
+              <button class="menu-btn join-btn" data-team="red" type="button">JOIN</button>
+            </div>
+            <ol id="redTeamList" class="team-list"></ol>
+          </div>
+
+          <button id="startMatchBtn" class="menu-btn action-btn" type="button" disabled>START</button>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div id="settingsScene" class="screen hidden">
-      <div class="scene-panel settings-panel">
-        <h2>SETTINGS</h2>
-
-        <label for="masterVolume" class="setting-label">
-          Master Volume
-          <span id="masterVolumeValue">100</span>
-        </label>
-        <input id="masterVolume" type="range" min="0" max="100" value="100" />
-
-        <label for="sfxVolume" class="setting-label">
-          SFX Volume
-          <span id="sfxVolumeValue">100</span>
-        </label>
-        <input id="sfxVolume" type="range" min="0" max="100" value="100" />
-
-        <label for="mouseSensitivity" class="setting-label">
-          Mouse Sensitivity
-          <span id="mouseSensitivityValue">1.0</span>
-        </label>
-        <input id="mouseSensitivity" type="range" min="0.1" max="3" step="0.1" value="1" />
-
-        <div class="scene-actions">
-          <button id="btn-logout" class="menu-btn" type="button">LOGOUT</button>
-          <button id="btn-settings-close" class="menu-btn popup-cancel" type="button">CLOSE</button>
-        </div>
+    <section id="playing" class="app-state hidden">
+      <div class="playing-shell">
+        <div class="playing-bar">MATCH IN PROGRESS</div>
+        <div id="canvasContainer" class="canvas-container">Gameplay canvas container</div>
       </div>
+    </section>
+
+    <aside id="sharedMapPanel" class="panel right-panel hidden" aria-label="Map selection gallery">
+      <div class="section-banner">SELECTION OF MAPS</div>
+      <div id="mapNameLabel" class="section-chip map-name-label">MAP NAME</div>
+      <div class="map-preview-wrapper">
+        <button id="btn-map-prev" class="arrow-btn" type="button" aria-label="Previous map">&#10094;</button>
+        <div id="mapPreview" class="map-preview-box"></div>
+        <button id="btn-map-next" class="arrow-btn" type="button" aria-label="Next map">&#10095;</button>
+      </div>
+    </aside>
+
+    <aside id="settingsScene" class="scene-panel hidden">
+      <h2>SETTINGS</h2>
+      <label for="masterVolume" class="setting-label">Master Volume <span id="masterVolumeValue">100</span></label>
+      <input id="masterVolume" type="range" min="0" max="100" value="100" />
+      <label for="sfxVolume" class="setting-label">SFX Volume <span id="sfxVolumeValue">100</span></label>
+      <input id="sfxVolume" type="range" min="0" max="100" value="100" />
+      <label for="mouseSensitivity" class="setting-label">Mouse Sensitivity <span id="mouseSensitivityValue">1.0</span></label>
+      <input id="mouseSensitivity" type="range" min="0.1" max="3" step="0.1" value="1" />
+      <button id="btn-settings-close" class="menu-btn" type="button">CLOSE</button>
+    </aside>
+
+    <div id="loggedInDashboard" class="dashboard-fixed">
+      <p><strong id="playerName">Guest</strong></p>
+      <p>Gold: <span id="goldValue">0</span></p>
+      <p>XP: <span id="xpValue">0</span> | Lvl: <span id="levelValue">1</span></p>
+      <p>W: <span id="winsValue">0</span> / L: <span id="lossValue">0</span></p>
+      <button id="loggedInBadge" class="menu-btn dashboard-login-btn" type="button">LOG IN</button>
     </div>
   </div>
 
