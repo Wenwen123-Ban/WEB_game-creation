@@ -100,28 +100,212 @@ const mapBackgroundPalette = {
   default: "#a4cd8a",
 };
 
+class Unit {
+  constructor(x, y, team, type = "rifleman") {
+    this.x = x;
+    this.y = y;
+    this.targetX = x;
+    this.targetY = y;
+    this.team = team;
+    this.type = type;
+    this.speed = 120;
+    this.maxHp = 100;
+    this.hp = this.maxHp;
+    this.isSelected = false;
+  }
+
+  update(deltaSeconds) {
+    const dx = this.targetX - this.x;
+    const dy = this.targetY - this.y;
+    const distance = Math.hypot(dx, dy);
+
+    if (distance < 0.01) {
+      this.x = this.targetX;
+      this.y = this.targetY;
+      return;
+    }
+
+    const step = this.speed * deltaSeconds;
+    if (distance <= step) {
+      this.x = this.targetX;
+      this.y = this.targetY;
+      return;
+    }
+
+    const ratio = step / distance;
+    this.x += dx * ratio;
+    this.y += dy * ratio;
+  }
+
+  moveTo(x, y) {
+    this.targetX = x;
+    this.targetY = y;
+  }
+
+  draw(ctx, camera) {
+    const screenX = (this.x - camera.x) * camera.zoom;
+    const screenY = (this.y - camera.y) * camera.zoom;
+    const fillColor = this.team === "blue" ? "#1f57d6" : "#d83131";
+
+    ctx.save();
+    ctx.fillStyle = fillColor;
+
+    switch (this.type) {
+      case "grenadier": {
+        const size = 14 * camera.zoom;
+        ctx.fillRect(screenX - size / 2, screenY - size / 2, size, size);
+        break;
+      }
+      case "cavalry": {
+        const radius = 8 * camera.zoom;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "artillery": {
+        const width = 20 * camera.zoom;
+        const height = 12 * camera.zoom;
+        ctx.fillRect(screenX - width / 2, screenY - height / 2, width, height);
+        break;
+      }
+      case "rifleman":
+      default: {
+        const width = 12 * camera.zoom;
+        const height = 8 * camera.zoom;
+        ctx.fillRect(screenX - width / 2, screenY - height / 2, width, height);
+      }
+    }
+
+    if (this.isSelected) {
+      ctx.strokeStyle = "#ffe066";
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "#ffe066";
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, 12 * camera.zoom, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  containsPoint(worldX, worldY) {
+    const hitRadius = 14;
+    return Math.hypot(worldX - this.x, worldY - this.y) <= hitRadius;
+  }
+}
+
+const SpawnManager = {
+  spawnFormation(team, type, count, originX, originY) {
+    const formationColumns = 5;
+    const spacing = 35;
+    for (let i = 0; i < count; i += 1) {
+      const col = i % formationColumns;
+      const row = Math.floor(i / formationColumns);
+      const jitterX = (Math.random() - 0.5) * 8;
+      const jitterY = (Math.random() - 0.5) * 8;
+      units.push(new Unit(
+          originX + col * spacing + jitterX,
+          originY + row * spacing + jitterY,
+          team,
+          type,
+      ));
+    }
+  },
+  spawnInitialArmies(map) {
+    units = [];
+    this.spawnFormation("blue", "rifleman", 10, map.spawnPoints.blue.x - 80, map.spawnPoints.blue.y - 30);
+    this.spawnFormation("red", "rifleman", 10, map.spawnPoints.red.x - 80, map.spawnPoints.red.y - 30);
+  },
+};
+
+const UnitManager = {
+  update(deltaSeconds) {
+    units.forEach((unit) => unit.update(deltaSeconds));
+  },
+  draw(ctx, camera) {
+    units.forEach((unit) => unit.draw(ctx, camera));
+  },
+  clearSelection() {
+    units.forEach((unit) => {
+      unit.isSelected = false;
+    });
+  },
+  getSelectedUnits() {
+    return units.filter((unit) => unit.isSelected);
+  },
+  selectUnitAt(worldX, worldY, keepExisting = false) {
+    if (!keepExisting) {
+      this.clearSelection();
+    }
+
+    for (let i = units.length - 1; i >= 0; i -= 1) {
+      if (units[i].containsPoint(worldX, worldY)) {
+        units[i].isSelected = true;
+        return true;
+      }
+    }
+
+    return false;
+  },
+  selectInRectangle(rect, keepExisting = false) {
+    if (!keepExisting) {
+      this.clearSelection();
+    }
+
+    units.forEach((unit) => {
+      if (unit.x >= rect.minX && unit.x <= rect.maxX && unit.y >= rect.minY && unit.y <= rect.maxY) {
+        unit.isSelected = true;
+      }
+    });
+  },
+  moveSelectedTo(targetX, targetY) {
+    const selectedUnits = this.getSelectedUnits();
+    if (selectedUnits.length === 0) {
+      return;
+    }
+
+    const spacing = 24;
+    const columns = Math.max(1, Math.ceil(Math.sqrt(selectedUnits.length)));
+
+    selectedUnits.forEach((unit, index) => {
+      const col = index % columns;
+      const row = Math.floor(index / columns);
+      const offsetX = (col - (columns - 1) / 2) * spacing;
+      const offsetY = (row - (Math.ceil(selectedUnits.length / columns) - 1) / 2) * spacing;
+      unit.moveTo(targetX + offsetX, targetY + offsetY);
+    });
+  },
+};
+
 const GameplayMapRenderer = {
   canvas: null,
   context: null,
   map: null,
-  camera: null,
-  cameraTarget: null,
-  keyState: {},
+  cameraX: 0,
+  cameraY: 0,
+  zoomLevel: 1,
+  minZoom: 0.5,
+  maxZoom: 2,
   animationFrame: null,
-  speed: 14,
+  lastFrameTime: 0,
+  speed: 520,
   edgeScrollZone: 20,
   pointerPosition: { x: 0, y: 0 },
   isPointerInsideCanvas: false,
   isDragPanning: false,
-  dragButton: null,
   lastDragPosition: null,
-  cameraSmoothing: 0.2,
+  isSelecting: false,
+  selectionStart: null,
+  selectionCurrent: null,
   onPointerMove: null,
   onPointerDown: null,
   onPointerUp: null,
   onPointerEnter: null,
   onPointerLeave: null,
   onContextMenu: null,
+  onWheel: null,
   init(selectedMap) {
     this.detachPointerControls();
 
@@ -138,16 +322,11 @@ const GameplayMapRenderer = {
     this.canvas = canvas;
     this.context = canvas.getContext("2d");
     this.map = toWorldMap(selectedMap);
-    this.camera = {
-      x: 0,
-      y: 0,
-      width: canvas.width,
-      height: canvas.height,
-    };
-    this.cameraTarget = {
-      x: this.camera.x,
-      y: this.camera.y,
-    };
+    this.cameraX = Math.max(0, this.map.spawnPoints.blue.x - canvas.width / 2);
+    this.cameraY = Math.max(0, this.map.spawnPoints.blue.y - canvas.height / 2);
+    this.zoomLevel = 1;
+    this.lastFrameTime = performance.now();
+    SpawnManager.spawnInitialArmies(this.map);
 
     this.attachPointerControls();
 
@@ -158,42 +337,46 @@ const GameplayMapRenderer = {
     this.gameLoop();
   },
   gameLoop() {
-    this.update();
+    const now = performance.now();
+    const deltaSeconds = Math.min((now - this.lastFrameTime) / 1000, 0.05);
+    this.lastFrameTime = now;
+
+    this.update(deltaSeconds);
     this.render();
     this.animationFrame = requestAnimationFrame(() => this.gameLoop());
   },
-  update() {
-    this.updateCamera();
+  update(deltaSeconds) {
+    this.updateCamera(deltaSeconds);
+    UnitManager.update(deltaSeconds);
   },
-  updateCamera() {
-    if (!this.camera || !this.map || !this.cameraTarget) {
+  getViewportWidth() {
+    return this.canvas.width / this.zoomLevel;
+  },
+  getViewportHeight() {
+    return this.canvas.height / this.zoomLevel;
+  },
+  clampCamera() {
+    const maxX = Math.max(0, this.map.width - this.getViewportWidth());
+    const maxY = Math.max(0, this.map.height - this.getViewportHeight());
+    this.cameraX = Math.max(0, Math.min(this.cameraX, maxX));
+    this.cameraY = Math.max(0, Math.min(this.cameraY, maxY));
+  },
+  updateCamera(deltaSeconds) {
+    if (!this.canvas || !this.map) {
       return;
     }
 
-    const maxX = Math.max(0, this.map.width - this.camera.width);
-    const maxY = Math.max(0, this.map.height - this.camera.height);
+    const moveDistance = this.speed * deltaSeconds;
 
     if (this.isPointerInsideCanvas && !this.isDragPanning) {
       const { x, y } = this.pointerPosition;
-      if (x <= this.edgeScrollZone) this.cameraTarget.x -= this.speed;
-      if (x >= this.canvas.width - this.edgeScrollZone) this.cameraTarget.x += this.speed;
-      if (y <= this.edgeScrollZone) this.cameraTarget.y -= this.speed;
-      if (y >= this.canvas.height - this.edgeScrollZone) this.cameraTarget.y += this.speed;
+      if (x <= this.edgeScrollZone) this.cameraX -= moveDistance;
+      if (x >= this.canvas.width - this.edgeScrollZone) this.cameraX += moveDistance;
+      if (y <= this.edgeScrollZone) this.cameraY -= moveDistance;
+      if (y >= this.canvas.height - this.edgeScrollZone) this.cameraY += moveDistance;
     }
 
-    if (this.keyState.ArrowUp || this.keyState.KeyW) this.cameraTarget.y -= this.speed;
-    if (this.keyState.ArrowDown || this.keyState.KeyS) this.cameraTarget.y += this.speed;
-    if (this.keyState.ArrowLeft || this.keyState.KeyA) this.cameraTarget.x -= this.speed;
-    if (this.keyState.ArrowRight || this.keyState.KeyD) this.cameraTarget.x += this.speed;
-
-    this.cameraTarget.x = Math.max(0, Math.min(this.cameraTarget.x, maxX));
-    this.cameraTarget.y = Math.max(0, Math.min(this.cameraTarget.y, maxY));
-
-    this.camera.x += (this.cameraTarget.x - this.camera.x) * this.cameraSmoothing;
-    this.camera.y += (this.cameraTarget.y - this.camera.y) * this.cameraSmoothing;
-
-    this.camera.x = Math.max(0, Math.min(this.camera.x, maxX));
-    this.camera.y = Math.max(0, Math.min(this.camera.y, maxY));
+    this.clampCamera();
   },
   getCanvasPointerPosition(event) {
     if (!this.canvas) {
@@ -215,38 +398,65 @@ const GameplayMapRenderer = {
       const position = this.getCanvasPointerPosition(event);
       this.pointerPosition = position;
 
-      if (!this.isDragPanning || !this.lastDragPosition || !this.cameraTarget) {
-        return;
+      if (this.isDragPanning && this.lastDragPosition) {
+        const deltaX = (position.x - this.lastDragPosition.x) / this.zoomLevel;
+        const deltaY = (position.y - this.lastDragPosition.y) / this.zoomLevel;
+        this.cameraX -= deltaX;
+        this.cameraY -= deltaY;
+        this.lastDragPosition = position;
+        this.clampCamera();
       }
 
-      const deltaX = position.x - this.lastDragPosition.x;
-      const deltaY = position.y - this.lastDragPosition.y;
-      this.cameraTarget.x -= deltaX;
-      this.cameraTarget.y -= deltaY;
-      this.lastDragPosition = position;
+      if (this.isSelecting) {
+        this.selectionCurrent = this.screenToWorld(position.x, position.y);
+      }
     };
 
     this.onPointerDown = (event) => {
-      if (event.button !== 1 && event.button !== 2) {
+      const position = this.getCanvasPointerPosition(event);
+      this.pointerPosition = position;
+
+      if (event.button === 1) {
+        this.isDragPanning = true;
+        this.lastDragPosition = position;
+        event.preventDefault();
         return;
       }
 
-      const position = this.getCanvasPointerPosition(event);
-      this.isDragPanning = true;
-      this.dragButton = event.button;
-      this.lastDragPosition = position;
-      this.pointerPosition = position;
-      event.preventDefault();
+      if (event.button === 0) {
+        this.isSelecting = true;
+        this.selectionStart = this.screenToWorld(position.x, position.y);
+        this.selectionCurrent = this.selectionStart;
+      }
     };
 
     this.onPointerUp = (event) => {
-      if (!this.isDragPanning || event.button !== this.dragButton) {
+      if (event.button === 1 && this.isDragPanning) {
+        this.isDragPanning = false;
+        this.lastDragPosition = null;
         return;
       }
 
-      this.isDragPanning = false;
-      this.dragButton = null;
-      this.lastDragPosition = null;
+      if (event.button === 0 && this.isSelecting && this.selectionStart && this.selectionCurrent) {
+        const keepExisting = event.shiftKey;
+        const width = Math.abs(this.selectionCurrent.x - this.selectionStart.x);
+        const height = Math.abs(this.selectionCurrent.y - this.selectionStart.y);
+
+        if (width < 8 && height < 8) {
+          UnitManager.selectUnitAt(this.selectionStart.x, this.selectionStart.y, keepExisting);
+        } else {
+          UnitManager.selectInRectangle({
+            minX: Math.min(this.selectionStart.x, this.selectionCurrent.x),
+            maxX: Math.max(this.selectionStart.x, this.selectionCurrent.x),
+            minY: Math.min(this.selectionStart.y, this.selectionCurrent.y),
+            maxY: Math.max(this.selectionStart.y, this.selectionCurrent.y),
+          }, keepExisting);
+        }
+
+        this.isSelecting = false;
+        this.selectionStart = null;
+        this.selectionCurrent = null;
+      }
     };
 
     this.onPointerEnter = (event) => {
@@ -257,12 +467,30 @@ const GameplayMapRenderer = {
     this.onPointerLeave = () => {
       this.isPointerInsideCanvas = false;
       this.isDragPanning = false;
-      this.dragButton = null;
       this.lastDragPosition = null;
+      this.isSelecting = false;
+      this.selectionStart = null;
+      this.selectionCurrent = null;
     };
 
     this.onContextMenu = (event) => {
+      const position = this.getCanvasPointerPosition(event);
+      const worldPosition = this.screenToWorld(position.x, position.y);
+      UnitManager.moveSelectedTo(worldPosition.x, worldPosition.y);
       event.preventDefault();
+    };
+
+    this.onWheel = (event) => {
+      event.preventDefault();
+
+      const position = this.getCanvasPointerPosition(event);
+      const beforeZoom = this.screenToWorld(position.x, position.y);
+      const zoomDirection = event.deltaY < 0 ? 1.1 : 0.9;
+      this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoomLevel * zoomDirection));
+
+      this.cameraX = beforeZoom.x - position.x / this.zoomLevel;
+      this.cameraY = beforeZoom.y - position.y / this.zoomLevel;
+      this.clampCamera();
     };
 
     this.canvas.addEventListener("mousemove", this.onPointerMove);
@@ -271,6 +499,7 @@ const GameplayMapRenderer = {
     this.canvas.addEventListener("mouseenter", this.onPointerEnter);
     this.canvas.addEventListener("mouseleave", this.onPointerLeave);
     this.canvas.addEventListener("contextmenu", this.onContextMenu);
+    this.canvas.addEventListener("wheel", this.onWheel, { passive: false });
   },
   detachPointerControls() {
     if (!this.canvas) {
@@ -283,16 +512,48 @@ const GameplayMapRenderer = {
     if (this.onPointerEnter) this.canvas.removeEventListener("mouseenter", this.onPointerEnter);
     if (this.onPointerLeave) this.canvas.removeEventListener("mouseleave", this.onPointerLeave);
     if (this.onContextMenu) this.canvas.removeEventListener("contextmenu", this.onContextMenu);
+    if (this.onWheel) this.canvas.removeEventListener("wheel", this.onWheel);
+  },
+  screenToWorld(screenX, screenY) {
+    return {
+      x: this.cameraX + screenX / this.zoomLevel,
+      y: this.cameraY + screenY / this.zoomLevel,
+    };
   },
   render() {
-    if (!this.context || !this.map || !this.camera) {
+    if (!this.context || !this.map) {
       return;
     }
 
-    const { context: ctx, map, camera } = this;
+    const { context: ctx, map } = this;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    drawMapSceneWithCamera(ctx, map, camera, true);
+    drawMapSceneWithCamera(ctx, map, {
+      x: this.cameraX,
+      y: this.cameraY,
+      width: this.canvas.width,
+      height: this.canvas.height,
+      zoom: this.zoomLevel,
+    }, true);
+    UnitManager.draw(ctx, {
+      x: this.cameraX,
+      y: this.cameraY,
+      zoom: this.zoomLevel,
+    });
+
+    if (this.isSelecting && this.selectionStart && this.selectionCurrent) {
+      const startX = (this.selectionStart.x - this.cameraX) * this.zoomLevel;
+      const startY = (this.selectionStart.y - this.cameraY) * this.zoomLevel;
+      const currentX = (this.selectionCurrent.x - this.cameraX) * this.zoomLevel;
+      const currentY = (this.selectionCurrent.y - this.cameraY) * this.zoomLevel;
+      ctx.save();
+      ctx.fillStyle = "rgba(255, 224, 102, 0.2)";
+      ctx.strokeStyle = "rgba(255, 224, 102, 0.85)";
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(startX, startY, currentX - startX, currentY - startY);
+      ctx.strokeRect(startX, startY, currentX - startX, currentY - startY);
+      ctx.restore();
+    }
   },
   teardown() {
     cancelAnimationFrame(this.animationFrame);
@@ -523,22 +784,22 @@ function drawMapSceneWithCamera(ctx, map, camera, withLabels) {
   ctx.fillStyle = mapBackgroundPalette[map.background] || mapBackgroundPalette.default;
   ctx.fillRect(0, 0, camera.width, camera.height);
 
-  const toDrawX = (worldX) => worldX - camera.x;
-  const toDrawY = (worldY) => worldY - camera.y;
+  const toDrawX = (worldX) => (worldX - camera.x) * camera.zoom;
+  const toDrawY = (worldY) => (worldY - camera.y) * camera.zoom;
 
   const blueSpawn = map.spawnPoints.blue;
   const redSpawn = map.spawnPoints.red;
-  drawStar(ctx, toDrawX(blueSpawn.x), toDrawY(blueSpawn.y), 10, "#1f57d6");
-  drawStar(ctx, toDrawX(redSpawn.x), toDrawY(redSpawn.y), 10, "#d83131");
+  drawStar(ctx, toDrawX(blueSpawn.x), toDrawY(blueSpawn.y), 10 * camera.zoom, "#1f57d6");
+  drawStar(ctx, toDrawX(redSpawn.x), toDrawY(redSpawn.y), 10 * camera.zoom, "#d83131");
 
   map.towns.forEach((town) => {
     const drawX = toDrawX(town.x);
     const drawY = toDrawY(town.y);
-    drawStar(ctx, drawX, drawY, 9, "#d83131");
+    drawStar(ctx, drawX, drawY, 9 * camera.zoom, "#d83131");
     if (withLabels) {
       ctx.fillStyle = "#1b2a1a";
-      ctx.font = "14px Arial";
-      ctx.fillText(town.name, drawX + 10, drawY - 10);
+      ctx.font = `${Math.max(10, 14 * camera.zoom)}px Arial`;
+      ctx.fillText(town.name, drawX + 10 * camera.zoom, drawY - 10 * camera.zoom);
     }
   });
 }
@@ -1124,12 +1385,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  document.addEventListener("keydown", (event) => {
-    GameplayMapRenderer.keyState[event.code] = true;
-  });
-  document.addEventListener("keyup", (event) => {
-    GameplayMapRenderer.keyState[event.code] = false;
-  });
 });
 
 window.addEventListener("load", async () => {
