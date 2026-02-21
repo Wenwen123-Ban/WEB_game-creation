@@ -28,6 +28,11 @@ body {
   overflow: auto;
 }
 
+.app-header {
+  position: relative;
+  min-height: 70px;
+}
+
 .game-title {
   position: absolute;
   top: 16px;
@@ -39,11 +44,15 @@ body {
   text-align: center;
 }
 
-.top-right-btn {
-  position: fixed;
+.back-button {
+  position: absolute;
   top: 20px;
-  right: 28px;
-  width: 200px;
+  right: 40px;
+  width: 140px;
+  height: 45px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   z-index: 60;
 }
 
@@ -410,8 +419,8 @@ body {
     padding-top: 86px;
   }
 
-  .top-right-btn {
-    width: 140px;
+  .back-button {
+    width: 120px;
     right: 12px;
     top: 12px;
   }
