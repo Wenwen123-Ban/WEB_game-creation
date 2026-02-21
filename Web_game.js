@@ -7,6 +7,29 @@ let currentPlayer = null;
 let units = [];
 let projectiles = [];
 let effects = [];
+let isPaused = false;
+
+const UNIT_STATS = {
+  rifleman: {
+    cost: 100, hp: 100, damage: 10, range: 120, speed: 1.5, cooldown: 800,
+  },
+  grenadier: {
+    cost: 200, hp: 150, damage: 25, range: 140, speed: 1.2, cooldown: 1200,
+  },
+  cavalry: {
+    cost: 300, hp: 200, damage: 20, range: 60, speed: 2.5, cooldown: 600,
+  },
+  artillery: {
+    cost: 500, hp: 180, damage: 50, range: 300, speed: 0.5, cooldown: 2000,
+  },
+};
+
+const GAMEPLAY_CONFIG = {
+  maxUnitsPerPlayer: 50,
+  passiveGoldAmount: 5,
+  passiveGoldIntervalMs: 3000,
+  botThinkIntervalMs: 2500,
+};
 
 function showScreen(screenId) {
   document.querySelectorAll(".screen").forEach((screen) => {
@@ -40,6 +63,7 @@ function updateUIVisibility() {
 }
 
 function enterGame() {
+  isPaused = false;
   setGameState("playing");
   document.getElementById("devTools")?.classList.add("hidden");
 }
@@ -82,8 +106,10 @@ const GameManager = {
     units = [];
     projectiles = [];
     effects = [];
+    EconomyManager.initMatchPlayers();
     enterGame();
     GameplayMapRenderer.init(getSelectedMap());
+    UIManager.initGameplayUI();
     updateDashboard();
   },
   async prepareMatch() {
@@ -100,17 +126,129 @@ const mapBackgroundPalette = {
   default: "#a4cd8a",
 };
 
+const EconomyManager = {
+  players: [],
+  humanPlayer: null,
+  botPlayer: null,
+  incomeAccumulatorMs: 0,
+  initMatchPlayers() {
+    const humanName = currentPlayer?.username || "Guest";
+    this.humanPlayer = {
+      id: "human",
+      name: humanName,
+      team: GameManager.selectedTeam || "blue",
+      gold: Number(currentPlayer?.gold ?? 1000),
+      units: [],
+      totalUnitsCreated: 0,
+      totalUnitsLost: 0,
+      isBot: false,
+    };
+
+    this.botPlayer = {
+      id: "bot",
+      name: "Marshal Bot",
+      team: this.humanPlayer.team === "blue" ? "red" : "blue",
+      gold: 1000,
+      units: [],
+      totalUnitsCreated: 0,
+      totalUnitsLost: 0,
+      isBot: true,
+    };
+
+    this.players = [this.humanPlayer, this.botPlayer];
+    this.incomeAccumulatorMs = 0;
+    UIManager.syncGoldDisplay();
+  },
+  canAfford(player, unitType) {
+    return player.gold >= UNIT_STATS[unitType].cost;
+  },
+  addGold(player, amount) {
+    player.gold += amount;
+    UIManager.syncGoldDisplay();
+    UIManager.updateSpawnButtons();
+  },
+  spendGold(player, unitType) {
+    if (!this.canAfford(player, unitType)) {
+      UIManager.flashMessage("Not enough gold", "error");
+      return false;
+    }
+    player.gold -= UNIT_STATS[unitType].cost;
+    UIManager.syncGoldDisplay();
+    return true;
+  },
+  update(deltaSeconds) {
+    this.incomeAccumulatorMs += deltaSeconds * 1000;
+    while (this.incomeAccumulatorMs >= GAMEPLAY_CONFIG.passiveGoldIntervalMs) {
+      this.incomeAccumulatorMs -= GAMEPLAY_CONFIG.passiveGoldIntervalMs;
+      this.players.forEach((player) => this.addGold(player, GAMEPLAY_CONFIG.passiveGoldAmount));
+    }
+  },
+};
+
+const EffectsManager = {
+  createFlash(x, y) {
+    effects.push({ type: "flash", x, y, age: 0, duration: 200, radius: 10 });
+  },
+  createHitSpark(x, y) {
+    effects.push({ type: "hit", x, y, age: 0, duration: 240, radius: 8 });
+  },
+  createDeathFade(unit) {
+    effects.push({
+      type: "death", x: unit.x, y: unit.y, age: 0, duration: 600, radius: 12, team: unit.team,
+    });
+  },
+  update(deltaSeconds) {
+    effects = effects.filter((effect) => {
+      effect.age += deltaSeconds * 1000;
+      return effect.age < effect.duration;
+    });
+  },
+  draw(ctx, camera) {
+    effects.forEach((effect) => {
+      const progress = effect.age / effect.duration;
+      const screenX = (effect.x - camera.x) * camera.zoom;
+      const screenY = (effect.y - camera.y) * camera.zoom;
+      ctx.save();
+      if (effect.type === "flash") {
+        ctx.strokeStyle = `rgba(255, 236, 133, ${1 - progress})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, (effect.radius + progress * 14) * camera.zoom, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (effect.type === "hit") {
+        ctx.fillStyle = `rgba(220, 36, 36, ${1 - progress})`;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, (effect.radius * (1 + progress)) * camera.zoom, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (effect.type === "death") {
+        const color = effect.team === "blue" ? "31,87,214" : "216,49,49";
+        ctx.fillStyle = `rgba(${color}, ${0.5 * (1 - progress)})`;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, (effect.radius + progress * 24) * camera.zoom, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    });
+  },
+};
+
 class Unit {
-  constructor(x, y, team, type = "rifleman") {
+  constructor(x, y, owner, type = "rifleman") {
     this.x = x;
     this.y = y;
     this.targetX = x;
     this.targetY = y;
-    this.team = team;
+    this.owner = owner;
+    this.team = owner.team;
     this.type = type;
-    this.speed = 120;
-    this.maxHp = 100;
+    this.stats = UNIT_STATS[type];
+    this.speed = this.stats.speed * 80;
+    this.maxHp = this.stats.hp;
     this.hp = this.maxHp;
+    this.damage = this.stats.damage;
+    this.range = this.stats.range;
+    this.cooldown = this.stats.cooldown;
+    this.lastAttackAt = 0;
     this.isSelected = false;
   }
 
@@ -177,6 +315,16 @@ class Unit {
       }
     }
 
+    const hpRatio = Math.max(0, this.hp / this.maxHp);
+    const barWidth = 20 * camera.zoom;
+    const barHeight = 3 * camera.zoom;
+    const barX = screenX - barWidth / 2;
+    const barY = screenY - 16 * camera.zoom;
+    ctx.fillStyle = "#8d1d1d";
+    ctx.fillRect(barX, barY, barWidth, barHeight);
+    ctx.fillStyle = "#3db63d";
+    ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
+
     if (this.isSelected) {
       ctx.strokeStyle = "#ffe066";
       ctx.lineWidth = 2;
@@ -197,26 +345,39 @@ class Unit {
 }
 
 const SpawnManager = {
-  spawnFormation(team, type, count, originX, originY) {
-    const formationColumns = 5;
-    const spacing = 35;
-    for (let i = 0; i < count; i += 1) {
-      const col = i % formationColumns;
-      const row = Math.floor(i / formationColumns);
-      const jitterX = (Math.random() - 0.5) * 8;
-      const jitterY = (Math.random() - 0.5) * 8;
-      units.push(new Unit(
-          originX + col * spacing + jitterX,
-          originY + row * spacing + jitterY,
-          team,
-          type,
-      ));
-    }
+  getSpawnPoint(player) {
+    return GameplayMapRenderer.map?.spawnPoints?.[player.team] || { x: 300, y: 300 };
   },
-  spawnInitialArmies(map) {
+  spawnUnit(player, type, options = {}) {
+    if (!UNIT_STATS[type]) {
+      return null;
+    }
+
+    if (player.units.length >= GAMEPLAY_CONFIG.maxUnitsPerPlayer) {
+      UIManager.flashMessage(`${player.name} reached max units`, "error");
+      return null;
+    }
+
+    if (!options.skipCost && !EconomyManager.spendGold(player, type)) {
+      UIManager.updateSpawnButtons();
+      return null;
+    }
+
+    const origin = this.getSpawnPoint(player);
+    const jitterX = (Math.random() - 0.5) * 60;
+    const jitterY = (Math.random() - 0.5) * 60;
+    const unit = new Unit(origin.x + jitterX, origin.y + jitterY, player, type);
+    units.push(unit);
+    player.units.push(unit);
+    player.totalUnitsCreated += 1;
+    UIManager.updateSpawnButtons();
+    return unit;
+  },
+  spawnInitialArmies() {
     units = [];
-    this.spawnFormation("blue", "rifleman", 10, map.spawnPoints.blue.x - 80, map.spawnPoints.blue.y - 30);
-    this.spawnFormation("red", "rifleman", 10, map.spawnPoints.red.x - 80, map.spawnPoints.red.y - 30);
+    EconomyManager.players.forEach((player) => {
+      player.units = [];
+    });
   },
 };
 
@@ -226,6 +387,7 @@ const UnitManager = {
   },
   draw(ctx, camera) {
     units.forEach((unit) => unit.draw(ctx, camera));
+    EffectsManager.draw(ctx, camera);
   },
   clearSelection() {
     units.forEach((unit) => {
@@ -241,6 +403,9 @@ const UnitManager = {
     }
 
     for (let i = units.length - 1; i >= 0; i -= 1) {
+      if (units[i].team !== EconomyManager.humanPlayer?.team) {
+        continue;
+      }
       if (units[i].containsPoint(worldX, worldY)) {
         units[i].isSelected = true;
         return true;
@@ -255,6 +420,9 @@ const UnitManager = {
     }
 
     units.forEach((unit) => {
+      if (unit.team !== EconomyManager.humanPlayer?.team) {
+        return;
+      }
       if (unit.x >= rect.minX && unit.x <= rect.maxX && unit.y >= rect.minY && unit.y <= rect.maxY) {
         unit.isSelected = true;
       }
@@ -276,6 +444,168 @@ const UnitManager = {
       const offsetY = (row - (Math.ceil(selectedUnits.length / columns) - 1) / 2) * spacing;
       unit.moveTo(targetX + offsetX, targetY + offsetY);
     });
+  },
+  removeUnit(unit) {
+    const idx = units.indexOf(unit);
+    if (idx >= 0) {
+      units.splice(idx, 1);
+    }
+    const ownerIdx = unit.owner.units.indexOf(unit);
+    if (ownerIdx >= 0) {
+      unit.owner.units.splice(ownerIdx, 1);
+    }
+    unit.owner.totalUnitsLost += 1;
+    EffectsManager.createDeathFade(unit);
+  },
+};
+
+const CombatManager = {
+  update(deltaSeconds) {
+    const now = performance.now();
+    units.forEach((unit) => {
+      const enemy = this.findNearestEnemyInRange(unit);
+      if (!enemy) {
+        return;
+      }
+      unit.moveTo(unit.x, unit.y);
+      if (now - unit.lastAttackAt < unit.cooldown) {
+        return;
+      }
+      unit.lastAttackAt = now;
+      enemy.hp -= unit.damage;
+      EffectsManager.createFlash(unit.x, unit.y);
+      EffectsManager.createHitSpark(enemy.x, enemy.y);
+      if (enemy.hp <= 0) {
+        UnitManager.removeUnit(enemy);
+      }
+    });
+    EffectsManager.update(deltaSeconds);
+  },
+  findNearestEnemyInRange(unit) {
+    let nearest = null;
+    let nearestDistance = Infinity;
+    units.forEach((candidate) => {
+      if (candidate === unit || candidate.team === unit.team) {
+        return;
+      }
+      const distance = Math.hypot(candidate.x - unit.x, candidate.y - unit.y);
+      if (distance <= unit.range && distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = candidate;
+      }
+    });
+    return nearest;
+  },
+  findNearestEnemy(unit) {
+    let nearest = null;
+    let nearestDistance = Infinity;
+    units.forEach((candidate) => {
+      if (candidate.team === unit.team) {
+        return;
+      }
+      const distance = Math.hypot(candidate.x - unit.x, candidate.y - unit.y);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = candidate;
+      }
+    });
+    return nearest;
+  },
+};
+
+const AIManager = {
+  thinkAccumulatorMs: 0,
+  update(deltaSeconds) {
+    this.thinkAccumulatorMs += deltaSeconds * 1000;
+    if (this.thinkAccumulatorMs < GAMEPLAY_CONFIG.botThinkIntervalMs) {
+      return;
+    }
+    this.thinkAccumulatorMs = 0;
+
+    const bot = EconomyManager.botPlayer;
+    if (!bot) {
+      return;
+    }
+
+    const unitTypes = Object.keys(UNIT_STATS).sort((a, b) => UNIT_STATS[a].cost - UNIT_STATS[b].cost);
+    const cheapest = unitTypes[0];
+    if (EconomyManager.canAfford(bot, cheapest)) {
+      const affordable = unitTypes.filter((type) => EconomyManager.canAfford(bot, type));
+      const spawnType = affordable[Math.floor(Math.random() * affordable.length)] || cheapest;
+      SpawnManager.spawnUnit(bot, spawnType);
+    }
+
+    bot.units.forEach((unit) => {
+      const target = CombatManager.findNearestEnemy(unit);
+      if (target) {
+        unit.moveTo(target.x, target.y);
+      }
+    });
+  },
+};
+
+const UIManager = {
+  flashTimeout: null,
+  initGameplayUI() {
+    document.querySelectorAll(".spawn-btn").forEach((button) => {
+      button.textContent = `${button.dataset.unit} (${UNIT_STATS[button.dataset.unit].cost}g)`;
+      button.onclick = () => {
+        SpawnManager.spawnUnit(EconomyManager.humanPlayer, button.dataset.unit);
+      };
+    });
+    this.updateSpawnButtons();
+    this.syncGoldDisplay();
+  },
+  updateSpawnButtons() {
+    const player = EconomyManager.humanPlayer;
+    if (!player) {
+      return;
+    }
+    document.querySelectorAll(".spawn-btn").forEach((button) => {
+      const cost = UNIT_STATS[button.dataset.unit].cost;
+      const isFull = player.units.length >= GAMEPLAY_CONFIG.maxUnitsPerPlayer;
+      button.disabled = player.gold < cost || isFull || isPaused;
+    });
+    const unitCountLabel = document.getElementById("unitCountValue");
+    if (unitCountLabel) {
+      unitCountLabel.textContent = `${player.units.length}/${GAMEPLAY_CONFIG.maxUnitsPerPlayer}`;
+    }
+  },
+  syncGoldDisplay() {
+    if (EconomyManager.humanPlayer) {
+      document.getElementById("gameplayGoldValue").textContent = String(EconomyManager.humanPlayer.gold);
+    }
+  },
+  flashMessage(message, mode = "info") {
+    const messageBox = document.getElementById("gameMessage");
+    if (!messageBox) {
+      return;
+    }
+    messageBox.textContent = message;
+    messageBox.classList.toggle("error", mode === "error");
+    messageBox.classList.remove("hidden");
+    clearTimeout(this.flashTimeout);
+    this.flashTimeout = setTimeout(() => messageBox.classList.add("hidden"), 1200);
+  },
+  openStatusModal() {
+    isPaused = true;
+    setGameState("paused");
+    this.updateSpawnButtons();
+    const body = document.getElementById("statusRows");
+    body.innerHTML = "";
+    EconomyManager.players.forEach((player) => {
+      const row = document.createElement("div");
+      row.className = "status-row";
+      row.innerHTML = `<strong>${player.name}</strong><span>Gold: ${player.gold}</span><span>Units Alive: ${player.units.length}</span><span>Created: ${player.totalUnitsCreated}</span><span>Lost: ${player.totalUnitsLost}</span>`;
+      body.appendChild(row);
+    });
+    document.getElementById("statusModal").classList.remove("hidden");
+  },
+  resumeFromPause() {
+    document.getElementById("statusModal").classList.add("hidden");
+    isPaused = false;
+    enterGame();
+    this.updateSpawnButtons();
   },
 };
 
@@ -326,7 +656,7 @@ const GameplayMapRenderer = {
     this.cameraY = Math.max(0, this.map.spawnPoints.blue.y - canvas.height / 2);
     this.zoomLevel = 1;
     this.lastFrameTime = performance.now();
-    SpawnManager.spawnInitialArmies(this.map);
+    SpawnManager.spawnInitialArmies();
 
     this.attachPointerControls();
 
@@ -341,13 +671,19 @@ const GameplayMapRenderer = {
     const deltaSeconds = Math.min((now - this.lastFrameTime) / 1000, 0.05);
     this.lastFrameTime = now;
 
-    this.update(deltaSeconds);
+    if (!isPaused) {
+      this.update(deltaSeconds);
+    }
     this.render();
     this.animationFrame = requestAnimationFrame(() => this.gameLoop());
   },
   update(deltaSeconds) {
     this.updateCamera(deltaSeconds);
+    EconomyManager.update(deltaSeconds);
+    AIManager.update(deltaSeconds);
     UnitManager.update(deltaSeconds);
+    CombatManager.update(deltaSeconds);
+    UIManager.updateSpawnButtons();
   },
   getViewportWidth() {
     return this.canvas.width / this.zoomLevel;
@@ -1016,8 +1352,8 @@ function updateDashboard() {
   document.getElementById("lossValue").textContent = String(currentPlayer.losses ?? 0);
   document.getElementById("loggedInBadge").textContent = `LOGGED IN: ${currentPlayer.username}`;
   document.getElementById("loggedInBadge").disabled = true;
-  gameplayName.textContent = currentPlayer.username;
-  gameplayGold.textContent = String(currentPlayer.gold ?? 0);
+  gameplayName.textContent = EconomyManager.humanPlayer?.name || currentPlayer.username;
+  gameplayGold.textContent = String(EconomyManager.humanPlayer?.gold ?? currentPlayer.gold ?? 0);
   updateDeveloperControls();
 }
 
@@ -1374,16 +1710,12 @@ document.addEventListener("DOMContentLoaded", () => {
   addListenerById("loggedInBadge", "click", openLoginPopup);
   addListenerById("devSetGoldBtn", "click", openSetDeveloperGoldPopup);
   addListenerById("devSendGoldBtn", "click", openSendGoldPopup);
-  addListenerById("pauseBtn", "click", () => {
+  addListenerById("statusBtn", "click", () => {
     if (GAME_STATE === "playing") {
-      setGameState("paused");
-      return;
-    }
-
-    if (GAME_STATE === "paused") {
-      enterGame();
+      UIManager.openStatusModal();
     }
   });
+  addListenerById("resumeBtn", "click", () => UIManager.resumeFromPause());
 
 });
 

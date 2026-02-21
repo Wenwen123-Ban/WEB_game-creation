@@ -94,12 +94,21 @@
           <div class="in-game-hud panel">
             <p><strong id="gameplayPlayerName">Guest</strong></p>
             <p>Gold: <span id="gameplayGoldValue">0</span></p>
-            <button id="pauseBtn" class="menu-btn" type="button">PAUSE</button>
+            <button id="statusBtn" class="menu-btn" type="button">STATUS</button>
           </div>
         </div>
         <div id="gameWorld">
           <div id="canvasContainer" class="canvas-container">Gameplay canvas container</div>
         </div>
+        <div id="spawnPanel" class="spawn-panel panel">
+          <button class="menu-btn spawn-btn" data-unit="rifleman" type="button">Rifleman</button>
+          <button class="menu-btn spawn-btn" data-unit="grenadier" type="button">Grenadier</button>
+          <button class="menu-btn spawn-btn" data-unit="cavalry" type="button">Cavalry</button>
+          <button class="menu-btn spawn-btn" data-unit="artillery" type="button">Artillery</button>
+          <p class="spawn-meta">Units: <span id="unitCountValue">0/50</span></p>
+          <p id="gameMessage" class="game-message hidden"></p>
+        </div>
+
       </div>
     </section>
 
@@ -127,6 +136,15 @@
       </div>
     </div>
   </div>
+
+
+    <div id="statusModal" class="status-modal hidden">
+      <div class="status-card panel">
+        <h3>Live Match Status</h3>
+        <div id="statusRows" class="status-rows"></div>
+        <button id="resumeBtn" class="menu-btn" type="button">RESUME</button>
+      </div>
+    </div>
 
   <script src="maps.js"></script>
   <script src="Web_game.js"></script>
