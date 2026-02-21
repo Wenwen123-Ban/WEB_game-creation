@@ -48,6 +48,16 @@
 
           <button id="confirmSetupBtn" class="menu-btn action-btn" type="button" disabled>CONFIRM</button>
         </div>
+
+        <aside id="sharedMapPanel" class="panel right-panel hidden" aria-label="Map selection gallery">
+          <div class="section-banner">SELECTION OF MAPS</div>
+          <div id="mapNameLabel" class="section-chip map-name-label">MAP NAME</div>
+          <div class="map-preview-wrapper">
+            <button id="btn-map-prev" class="arrow-btn" type="button" aria-label="Previous map">&#10094;</button>
+            <div id="mapPreview" class="map-preview-box"></div>
+            <button id="btn-map-next" class="arrow-btn" type="button" aria-label="Next map">&#10095;</button>
+          </div>
+        </aside>
       </div>
     </section>
 
@@ -92,16 +102,6 @@
         </div>
       </div>
     </section>
-
-    <aside id="sharedMapPanel" class="panel right-panel hidden" aria-label="Map selection gallery">
-      <div class="section-banner">SELECTION OF MAPS</div>
-      <div id="mapNameLabel" class="section-chip map-name-label">MAP NAME</div>
-      <div class="map-preview-wrapper">
-        <button id="btn-map-prev" class="arrow-btn" type="button" aria-label="Previous map">&#10094;</button>
-        <div id="mapPreview" class="map-preview-box"></div>
-        <button id="btn-map-next" class="arrow-btn" type="button" aria-label="Next map">&#10095;</button>
-      </div>
-    </aside>
 
     <aside id="settingsScene" class="scene-panel hidden">
       <h2>SETTINGS</h2>
