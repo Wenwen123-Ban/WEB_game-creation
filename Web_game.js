@@ -32,14 +32,45 @@ const GAMEPLAY_CONFIG = {
 };
 
 const BOT_DIFFICULTY = {
-  easy: { thinkIntervalMs: 3200, spawnChance: 0.55, damageMultiplier: 0.85 },
-  medium: { thinkIntervalMs: 2400, spawnChance: 0.75, damageMultiplier: 1 },
-  hard: { thinkIntervalMs: 1400, spawnChance: 1, damageMultiplier: 1.25 },
+  easy: {
+    thinkIntervalMs: 3200,
+    spawnChance: 0.55,
+    damageMultiplier: 0.85,
+    hpMultiplier: 0.9,
+    rangeMultiplier: 0.95,
+    formationSize: 2,
+    preferredUnits: ["rifleman", "grenadier"],
+    napoleonSkillCooldownMs: 11000,
+  },
+  medium: {
+    thinkIntervalMs: 2200,
+    spawnChance: 0.8,
+    damageMultiplier: 1,
+    hpMultiplier: 1.05,
+    rangeMultiplier: 1,
+    formationSize: 3,
+    preferredUnits: ["rifleman", "grenadier", "cavalry"],
+    napoleonSkillCooldownMs: 8500,
+  },
+  hard: {
+    thinkIntervalMs: 1300,
+    spawnChance: 1,
+    damageMultiplier: 1.25,
+    hpMultiplier: 1.2,
+    rangeMultiplier: 1.1,
+    formationSize: 5,
+    preferredUnits: ["grenadier", "cavalry", "artillery", "rifleman"],
+    napoleonSkillCooldownMs: 6000,
+  },
 };
 
 const OBJECTIVE_CONFIG = {
   town: { maxHp: 220, radius: 65 },
   capital: { maxHp: 320, radius: 80 },
+};
+
+const MATCH_RULES = {
+  captureRewardGold: 180,
 };
 
 function showScreen(screenId) {
@@ -121,6 +152,7 @@ const GameManager = {
     EconomyManager.initMatchPlayers();
     enterGame();
     GameplayMapRenderer.init(getSelectedMap());
+    MatchFlowManager.init();
     UIManager.initGameplayUI();
     updateDashboard();
   },
@@ -226,6 +258,11 @@ const EconomyManager = {
     UIManager.syncGoldDisplay();
     return true;
   },
+  grantObjectiveReward(team, objectiveName) {
+    const recipients = this.players.filter((player) => player.team === team);
+    recipients.forEach((player) => this.addGold(player, MATCH_RULES.captureRewardGold));
+    UIManager.flashMessage(`${team.toUpperCase()} captured ${objectiveName} (+${MATCH_RULES.captureRewardGold} gold)`);
+  },
   update(deltaSeconds) {
     this.incomeAccumulatorMs += deltaSeconds * 1000;
     while (this.incomeAccumulatorMs >= GAMEPLAY_CONFIG.passiveGoldIntervalMs) {
@@ -300,6 +337,7 @@ class Unit {
     this.cooldown = this.stats.cooldown;
     this.lastAttackAt = 0;
     this.isSelected = false;
+    this.isBoosted = false;
   }
 
   update(deltaSeconds) {
@@ -417,6 +455,13 @@ const SpawnManager = {
     const jitterX = (Math.random() - 0.5) * 60;
     const jitterY = (Math.random() - 0.5) * 60;
     const unit = new Unit(origin.x + jitterX, origin.y + jitterY, player, type);
+    const difficulty = BOT_DIFFICULTY[GameManager.selectedDifficulty] || BOT_DIFFICULTY.medium;
+    if (player.isBot) {
+      unit.damage = UNIT_STATS[type].damage * difficulty.damageMultiplier;
+      unit.maxHp = UNIT_STATS[type].hp * difficulty.hpMultiplier;
+      unit.hp = unit.maxHp;
+      unit.range = UNIT_STATS[type].range * difficulty.rangeMultiplier;
+    }
     units.push(unit);
     player.units.push(unit);
     player.totalUnitsCreated += 1;
@@ -569,6 +614,7 @@ const CombatManager = {
 
 const AIManager = {
   thinkAccumulatorMs: 0,
+  lastNapoleonSkillAt: 0,
   update(deltaSeconds) {
     const difficulty = BOT_DIFFICULTY[GameManager.selectedDifficulty] || BOT_DIFFICULTY.medium;
     this.thinkAccumulatorMs += deltaSeconds * 1000;
@@ -578,7 +624,8 @@ const AIManager = {
     this.thinkAccumulatorMs = 0;
 
     EconomyManager.botPlayers.forEach((bot) => {
-      const unitTypes = Object.keys(UNIT_STATS).sort((a, b) => UNIT_STATS[a].cost - UNIT_STATS[b].cost);
+      const preferred = difficulty.preferredUnits || Object.keys(UNIT_STATS);
+      const unitTypes = [...preferred].sort((a, b) => UNIT_STATS[a].cost - UNIT_STATS[b].cost);
       const cheapest = unitTypes[0];
       if (Math.random() <= difficulty.spawnChance && EconomyManager.canAfford(bot, cheapest)) {
         const affordable = unitTypes.filter((type) => EconomyManager.canAfford(bot, type));
@@ -586,8 +633,15 @@ const AIManager = {
         SpawnManager.spawnUnit(bot, spawnType);
       }
 
+      const now = performance.now();
+      if (GameManager.selectedDifficulty === "hard" && now - this.lastNapoleonSkillAt >= difficulty.napoleonSkillCooldownMs) {
+        this.activateNapoleonSkill(bot);
+        this.lastNapoleonSkillAt = now;
+      }
+
+      this.moveInFormation(bot, difficulty);
+
       bot.units.forEach((unit) => {
-        unit.damage = UNIT_STATS[unit.type].damage * difficulty.damageMultiplier;
         const target = CombatManager.findNearestEnemy(unit);
         const objective = ObjectiveManager.findNearestHostileObjective(unit);
         const focus = target || objective;
@@ -596,6 +650,72 @@ const AIManager = {
         }
       });
     });
+  },
+  moveInFormation(bot, difficulty) {
+    if (!bot.units.length) {
+      return;
+    }
+    const anchor = CombatManager.findNearestEnemy(bot.units[0]) || ObjectiveManager.findNearestHostileObjective(bot.units[0]);
+    if (!anchor) {
+      return;
+    }
+    const rowWidth = Math.max(2, difficulty.formationSize);
+    const spacing = 34;
+    bot.units.forEach((unit, index) => {
+      const col = index % rowWidth;
+      const row = Math.floor(index / rowWidth);
+      const offsetX = (col - (rowWidth - 1) / 2) * spacing;
+      const offsetY = row * spacing;
+      unit.moveTo(anchor.x + offsetX, anchor.y + offsetY);
+    });
+  },
+  activateNapoleonSkill(bot) {
+    bot.units.forEach((unit) => {
+      if (unit.isBoosted) {
+        return;
+      }
+      unit.isBoosted = true;
+      unit.damage *= 1.15;
+      unit.range *= 1.1;
+      unit.cooldown *= 0.88;
+    });
+    UIManager.flashMessage(`${bot.name} used Napoleon tactics!`);
+  },
+};
+
+const MatchFlowManager = {
+  remainingMs: 0,
+  ended: false,
+  init() {
+    this.remainingMs = Number(GameManager.gameTime || 10) * 60 * 1000;
+    this.ended = false;
+  },
+  update(deltaSeconds) {
+    if (this.ended || isPaused) {
+      return;
+    }
+    this.remainingMs = Math.max(0, this.remainingMs - deltaSeconds * 1000);
+    UIManager.updateTimer(this.remainingMs);
+    if (this.remainingMs === 0) {
+      this.resolveTimeout();
+    }
+  },
+  resolveTimeout() {
+    const allRedLost = ObjectiveManager.objectives.every((objective) => objective.team !== "red");
+    if (allRedLost) {
+      this.finish("blue", "Attackers captured every red city.");
+      return;
+    }
+    this.finish("red", "Defenders held the line until time expired.");
+  },
+  finish(winnerTeam, reason) {
+    if (this.ended) {
+      return;
+    }
+    this.ended = true;
+    isPaused = true;
+    UIManager.flashMessage(`${winnerTeam.toUpperCase()} wins! ${reason}`);
+    UIManager.updateSpawnButtons();
   },
 };
 
@@ -611,7 +731,7 @@ const ObjectiveManager = {
         name: town.name,
         x: town.x,
         y: town.y,
-        team: "red",
+        team: town.x <= map.width / 2 ? "blue" : "red",
         maxHp: config.maxHp,
         hp: config.maxHp,
         radius: config.radius,
@@ -619,10 +739,17 @@ const ObjectiveManager = {
     });
   },
   update() {
+    if (MatchFlowManager.ended) {
+      return;
+    }
     const winningTeam = this.getWinningTeam();
-    if (winningTeam && !isPaused) {
-      isPaused = true;
-      UIManager.flashMessage(`${winningTeam.toUpperCase()} captured all objectives and wins!`);
+    if (!winningTeam || isPaused || winningTeam === "red") {
+      return;
+    }
+
+    const allRedLost = this.objectives.every((objective) => objective.team !== "red");
+    if (allRedLost) {
+      MatchFlowManager.finish(winningTeam, "All enemy cities were captured.");
     }
   },
   getWinningTeam() {
@@ -654,9 +781,12 @@ const ObjectiveManager = {
     if (objective.hp > 0) {
       return;
     }
+    const previousTeam = objective.team;
     objective.team = attackerTeam;
     objective.hp = objective.maxHp;
-    UIManager.flashMessage(`${objective.name} captured by ${attackerTeam.toUpperCase()}!`);
+    if (previousTeam !== attackerTeam) {
+      EconomyManager.grantObjectiveReward(attackerTeam, objective.name);
+    }
   },
 };
 
@@ -671,6 +801,7 @@ const UIManager = {
     });
     this.updateSpawnButtons();
     this.syncGoldDisplay();
+    this.updateTimer(MatchFlowManager.remainingMs);
   },
   updateSpawnButtons() {
     const player = EconomyManager.humanPlayer;
@@ -712,7 +843,7 @@ const UIManager = {
     EconomyManager.players.forEach((player) => {
       const row = document.createElement("div");
       row.className = "status-row";
-      row.innerHTML = `<strong>${player.name}</strong><span>Gold: ${player.gold}</span><span>Units Alive: ${player.units.length}</span><span>Created: ${player.totalUnitsCreated}</span><span>Lost: ${player.totalUnitsLost}</span>`;
+      row.innerHTML = `<strong>${player.name}</strong><span>Gold: ${Math.round(player.gold)}</span><span>Units Alive: ${player.units.length}</span><span>Created: ${player.totalUnitsCreated}</span><span>Lost: ${player.totalUnitsLost}</span>`;
       body.appendChild(row);
     });
     document.getElementById("statusModal").classList.remove("hidden");
@@ -722,6 +853,15 @@ const UIManager = {
     isPaused = false;
     enterGame();
     this.updateSpawnButtons();
+  },
+  updateTimer(remainingMs) {
+    const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
+    const mins = String(Math.floor(seconds / 60)).padStart(2, "0");
+    const secs = String(seconds % 60).padStart(2, "0");
+    const bar = document.querySelector(".playing-bar");
+    if (bar) {
+      bar.textContent = `MATCH IN PROGRESS • ${mins}:${secs}`;
+    }
   },
 };
 
@@ -805,6 +945,7 @@ const GameplayMapRenderer = {
     UnitManager.update(deltaSeconds);
     CombatManager.update(deltaSeconds);
     ObjectiveManager.update();
+    MatchFlowManager.update(deltaSeconds);
     UIManager.updateSpawnButtons();
   },
   getViewportWidth() {
@@ -967,6 +1108,9 @@ const GameplayMapRenderer = {
   },
   attachKeyboardControls() {
     this.onKeyDown = (event) => {
+      if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(event.key.toLowerCase())) {
+        event.preventDefault();
+      }
       this.pressedKeys.add(event.key.toLowerCase());
     };
     this.onKeyUp = (event) => {
