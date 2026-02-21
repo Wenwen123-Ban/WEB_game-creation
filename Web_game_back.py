@@ -1,10 +1,11 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, session
 import os
 import json
 from datetime import datetime, timezone
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "database.json")
 TRANSACTION_PATH = os.path.join(BASE_DIR, "transaction.json")
@@ -107,12 +108,28 @@ def sanitize_player_response(username, account):
     return {
         "username": username,
         "gold": account.get("gold", 0),
+        "xp": account.get("xp", 0),
         "level": account.get("level", 1),
         "wins": account.get("wins", 0),
         "losses": account.get("losses", 0),
         "total_matches": account.get("total_matches", 0),
         "total_deployed_units": account.get("total_deployed_units", 0),
         "role": account.get("role", "player"),
+        "is_dev": account.get("role", "player") == "developer",
+    }
+
+
+def full_user_response(username, account):
+    return {
+        "username": username,
+        "gold": account.get("gold", 0),
+        "xp": account.get("xp", 0),
+        "level": account.get("level", 1),
+        "wins": account.get("wins", 0),
+        "losses": account.get("losses", 0),
+        "total_matches": account.get("total_matches", 0),
+        "total_units": account.get("total_deployed_units", 0),
+        "is_dev": account.get("role", "player") == "developer",
     }
 
 
@@ -141,6 +158,7 @@ def login_player():
     if not account or not check_password_hash(account.get("password", ""), password):
         return jsonify({"success": False, "error": "Invalid username or password."}), 401
 
+    session["username"] = username
     return jsonify({"success": True, "player": sanitize_player_response(username, account)})
 
 
@@ -178,8 +196,24 @@ def create_account():
         "role": "player",
     }
     save_database(data)
+    session["username"] = username
 
-    return jsonify({"success": True, "message": "Account created."}), 201
+    return jsonify({"success": True, "message": "Account created.", "player": sanitize_player_response(username, data["accounts"][username])}), 201
+
+
+@app.route("/get_current_user", methods=["GET"])
+def get_current_user():
+    username = session.get("username")
+    if not username:
+        return jsonify({"success": False})
+
+    data = load_database()
+    account = data["accounts"].get(username)
+    if not account:
+        session.pop("username", None)
+        return jsonify({"success": False})
+
+    return jsonify({"success": True, "user": full_user_response(username, account)})
 
 
 @app.route("/api/dev-set-gold", methods=["POST"])
