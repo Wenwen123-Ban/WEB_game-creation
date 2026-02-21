@@ -36,10 +36,6 @@ const GameManager = {
 
 const maps = ["Waterloo", "Desert Siege", "Flat Land"];
 let currentMapIndex = 0;
-const developerCredentials = {
-  username: "NapoleonDev",
-  password: "devpassword123",
-};
 
 const AudioManager = {
   masterVolume: 1,
@@ -278,12 +274,9 @@ function updateActionButtons() {
 
 function updateDeveloperControls() {
   const developerTools = document.getElementById("devTools");
-  const quickLoginBtn = document.getElementById("devQuickLoginBtn");
   const isDev = Boolean(currentPlayer?.is_dev);
 
   developerTools.classList.toggle("hidden", !isDev);
-  quickLoginBtn.disabled = isDev;
-  quickLoginBtn.textContent = isDev ? "DEV ACTIVE" : "DEV LOG IN";
 }
 
 function updateDashboard() {
@@ -535,15 +528,6 @@ function openLoginPopup() {
   popupControls.actions.prepend(createAccountBtn);
 }
 
-async function loginAsDeveloper() {
-  try {
-    await apiPost("/api/login", developerCredentials);
-    await refreshAccountState();
-  } catch (error) {
-    showWarningPopup(error.message || "Developer login failed.");
-  }
-}
-
 function openSetDeveloperGoldPopup() {
   if (!currentPlayer?.is_dev) {
     showWarningPopup("Developer login required.");
@@ -556,7 +540,6 @@ function openSetDeveloperGoldPopup() {
     submitLabel: "Update",
     onSubmit: async ({ amount }) => {
       await apiPost("/api/dev-set-gold", {
-        username: currentPlayer.username,
         amount: Number(amount),
       });
       await refreshAccountState();
@@ -581,7 +564,6 @@ function openSendGoldPopup() {
     submitLabel: "Send",
     onSubmit: async ({ to, amount }) => {
       await apiPost("/api/dev-send-gold", {
-        from: currentPlayer.username,
         to,
         amount: Number(amount),
       });
@@ -661,7 +643,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("loggedInBadge").addEventListener("click", openLoginPopup);
-  document.getElementById("devQuickLoginBtn").addEventListener("click", loginAsDeveloper);
   document.getElementById("devSetGoldBtn").addEventListener("click", openSetDeveloperGoldPopup);
   document.getElementById("devSendGoldBtn").addEventListener("click", openSendGoldPopup);
 });

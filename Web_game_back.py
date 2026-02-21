@@ -263,7 +263,10 @@ def logout():
 @app.route("/api/dev-set-gold", methods=["POST"])
 def dev_set_gold():
     payload = request.get_json(silent=True) or {}
-    username = (payload.get("username") or "").strip()
+    session_username = session.get("username")
+
+    if not session_username:
+        return jsonify({"success": False, "error": "You must be logged in."}), 401
 
     try:
         amount = _safe_int(payload.get("amount"))
@@ -274,9 +277,10 @@ def dev_set_gold():
         return jsonify({"success": False, "error": "Amount cannot be negative."}), 400
 
     data = load_database()
-    account = data["accounts"].get(username)
+    account = data["accounts"].get(session_username)
 
     if not account:
+        session.pop("username", None)
         return jsonify({"success": False, "error": "Account not found."}), 404
 
     if account.get("role") != "developer":
@@ -284,7 +288,7 @@ def dev_set_gold():
 
     account["gold"] = amount
     save_database(data)
-    append_transaction("dev_set", username, username, amount)
+    append_transaction("dev_set", session_username, session_username, amount)
 
     return jsonify({"success": True, "updated_gold": amount})
 
@@ -292,8 +296,11 @@ def dev_set_gold():
 @app.route("/api/dev-send-gold", methods=["POST"])
 def dev_send_gold():
     payload = request.get_json(silent=True) or {}
-    sender_name = (payload.get("from") or "").strip()
+    session_username = session.get("username")
     target_name = (payload.get("to") or "").strip()
+
+    if not session_username:
+        return jsonify({"success": False, "error": "You must be logged in."}), 401
 
     try:
         amount = _safe_int(payload.get("amount"))
@@ -304,10 +311,11 @@ def dev_send_gold():
         return jsonify({"success": False, "error": "Amount must be greater than zero."}), 400
 
     data = load_database()
-    sender = data["accounts"].get(sender_name)
+    sender = data["accounts"].get(session_username)
     target = data["accounts"].get(target_name)
 
     if not sender:
+        session.pop("username", None)
         return jsonify({"success": False, "error": "Sender account not found."}), 404
 
     if sender.get("role") != "developer":
@@ -318,7 +326,7 @@ def dev_send_gold():
 
     target["gold"] += amount
     save_database(data)
-    append_transaction("dev_send", sender_name, target_name, amount)
+    append_transaction("dev_send", session_username, target_name, amount)
 
     return jsonify({"success": True, "target": target_name, "amount": amount, "target_gold": target["gold"], "updated_gold": sender["gold"]})
 
