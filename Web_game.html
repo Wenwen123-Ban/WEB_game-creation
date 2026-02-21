@@ -10,6 +10,11 @@
   <div class="background">
     <h1 class="game-title">NAPOLEON TIMES</h1>
 
+    <div id="topBar">
+      <button id="backBtn" class="menu-btn topbar-btn hidden" type="button">BACK</button>
+      <button id="loggedInBadge" class="menu-btn topbar-btn" type="button">LOG IN</button>
+    </div>
+
     <div id="mainMenu" class="screen">
       <div class="left-panel">
         <div class="menu-buttons" aria-label="Main menu actions">
@@ -54,14 +59,10 @@
           </button>
         </div>
 
-        <div class="maps-actions">
-          <button id="btn-maps-back" class="menu-btn" type="button">BACK</button>
-        </div>
       </div>
     </div>
 
     <div id="playSetupScreen" class="screen hidden">
-      <button id="btn-play-setup-back" class="menu-btn play-back" type="button">BACK</button>
       <div class="play-layout">
         <div class="play-left-panel">
           <div class="section-chip">MODES</div>
@@ -129,8 +130,6 @@
         </div>
       </div>
     </div>
-
-    <button id="loginBtn" class="login-btn" type="button">LOG IN</button>
   </div>
 
   <script src="Web_game.js"></script>

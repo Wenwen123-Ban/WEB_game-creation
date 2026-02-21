@@ -2,6 +2,7 @@ let currentPlayer = null;
 let selectedMap = null;
 const maps = ["Waterloo", "Desert Siege", "Flat Land"];
 let currentMapIndex = 0;
+let currentScreenId = "mainMenu";
 
 let gameSetup = {
   map: null,
@@ -24,20 +25,24 @@ function showScreen(screenId) {
   const target = document.getElementById(screenId);
   if (target) {
     target.classList.remove("hidden");
+    currentScreenId = screenId;
   }
+
+  const backBtn = document.getElementById("backBtn");
+  backBtn.classList.toggle("hidden", currentScreenId === "mainMenu");
 }
 
-function setLoginButtonState(player = null) {
-  const loginButton = document.getElementById("loginBtn");
+function setLoginBadgeState(player = null) {
+  const loginBadge = document.getElementById("loggedInBadge");
 
   if (!player) {
-    loginButton.textContent = "LOG IN";
-    loginButton.disabled = false;
+    loginBadge.textContent = "LOG IN";
+    loginBadge.disabled = false;
     return;
   }
 
-  loginButton.textContent = `LOGGED IN: ${player.username}`;
-  loginButton.disabled = true;
+  loginBadge.textContent = `LOGGED IN: ${player.username}`;
+  loginBadge.disabled = true;
 }
 
 function clearDashboard() {
@@ -50,7 +55,7 @@ function clearDashboard() {
   document.getElementById("totalMatchesValue").textContent = "0";
   document.getElementById("totalUnitsValue").textContent = "0";
   document.getElementById("devButtonsContainer").style.display = "none";
-  setLoginButtonState();
+  setLoginBadgeState();
 }
 
 function syncSettingsControls() {
@@ -133,7 +138,7 @@ async function refreshAccountState() {
     const devButtons = document.getElementById("devButtonsContainer");
     devButtons.style.display = user.is_dev ? "block" : "none";
 
-    setLoginButtonState({ username: user.username });
+    setLoginBadgeState({ username: user.username });
     renderDevButtons();
   } catch (error) {
     console.error("Failed to refresh account:", error);
@@ -271,13 +276,13 @@ function renderDevButtons() {
 
   const setGold = document.createElement("button");
   setGold.type = "button";
-  setGold.className = "login-btn";
+  setGold.className = "menu-btn";
   setGold.textContent = "DEV: Set My Gold";
   setGold.addEventListener("click", openDevSetGoldPopup);
 
   const sendGold = document.createElement("button");
   sendGold.type = "button";
-  sendGold.className = "login-btn";
+  sendGold.className = "menu-btn";
   sendGold.textContent = "DEV: Send Gold";
   sendGold.addEventListener("click", openDevSendGoldPopup);
 
@@ -482,9 +487,6 @@ function setupSceneNavigation() {
   document.getElementById("btn-saved-maps").addEventListener("click", openMaps);
   document.getElementById("btn-maps").addEventListener("click", openMaps);
 
-  document.getElementById("btn-maps-back").addEventListener("click", () => showScreen("mainMenu"));
-  document.getElementById("btn-play-setup-back").addEventListener("click", () => showScreen("mainMenu"));
-
   document.querySelectorAll(".map-card").forEach((card) => {
     card.addEventListener("click", () => {
       setSelectedMap(card.dataset.map);
@@ -529,8 +531,9 @@ document.addEventListener("DOMContentLoaded", () => {
   loadSettings();
   setupSceneNavigation();
   updateMapPreview();
+  document.getElementById("backBtn").addEventListener("click", () => showScreen("mainMenu"));
   document.getElementById("btn-logout").addEventListener("click", logout);
-  document.getElementById("loginBtn").addEventListener("click", openLoginPopup);
+  document.getElementById("loggedInBadge").addEventListener("click", openLoginPopup);
 });
 
 window.addEventListener("load", async () => {
