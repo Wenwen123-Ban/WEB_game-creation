@@ -17,17 +17,17 @@
         <button id="btn-settings" class="menu-btn" type="button">SETTINGS</button>
       </div>
 
-      <div class="stats-box" aria-label="Player stats">
-        <h2>STATS</h2>
-        <p><span class="label">PLAYER:</span> <span id="stat-player">-</span></p>
-        <p><span class="label">W/D:</span> <span id="stat-wd">-</span></p>
-        <p><span class="label">GOLD:</span> <span id="stat-gold">-</span></p>
-        <p><span class="label">TOTAL MATCHES:</span> <span id="stat-total-matches">-</span></p>
-        <p><span class="label">TOTAL DEPLOYED UNITS:</span> <span id="stat-total-units">-</span></p>
+      <div id="statsPanel" class="stats-box" aria-label="Player stats">
+        <h2>START</h2>
+        <p><span class="label">PLAYER:</span> <span id="stat-username">Guest</span><span id="devBadge" hidden>[DEV]</span></p>
+        <p><span class="label">W/L:</span> <span id="stat-wl">0 / 0</span></p>
+        <p><span class="label">GOLD:</span> <span id="stat-gold">0</span></p>
+        <p><span class="label">TOTAL MATCHES:</span> <span id="stat-totalMatches">0</span></p>
+        <p><span class="label">TOTAL DEPLOYED UNITS:</span> <span id="stat-totalUnits">0</span></p>
       </div>
     </div>
 
-    <button id="btn-login" class="login-btn" type="button">LOG IN</button>
+    <button id="loginBtn" class="login-btn" type="button">LOG IN</button>
   </div>
 
   <script src="Web_game.js"></script>

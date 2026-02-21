@@ -44,6 +44,7 @@ def ensure_database():
             "wins": 0,
             "losses": 0,
             "total_matches": 0,
+            "total_deployed_units": 0,
             "role": "developer",
         }
 
@@ -105,9 +106,13 @@ def append_transaction(entry_type, from_user, to_user, amount):
 def sanitize_player_response(username, account):
     return {
         "username": username,
-        "gold": account["gold"],
-        "level": account["level"],
-        "role": account["role"],
+        "gold": account.get("gold", 0),
+        "level": account.get("level", 1),
+        "wins": account.get("wins", 0),
+        "losses": account.get("losses", 0),
+        "total_matches": account.get("total_matches", 0),
+        "total_deployed_units": account.get("total_deployed_units", 0),
+        "role": account.get("role", "player"),
     }
 
 
@@ -169,6 +174,7 @@ def create_account():
         "wins": 0,
         "losses": 0,
         "total_matches": 0,
+        "total_deployed_units": 0,
         "role": "player",
     }
     save_database(data)
@@ -202,7 +208,7 @@ def dev_set_gold():
     save_database(data)
     append_transaction("dev_set", username, username, amount)
 
-    return jsonify({"success": True, "gold": amount})
+    return jsonify({"success": True, "updated_gold": amount})
 
 
 @app.route("/api/dev-send-gold", methods=["POST"])
@@ -236,7 +242,7 @@ def dev_send_gold():
     save_database(data)
     append_transaction("dev_send", sender_name, target_name, amount)
 
-    return jsonify({"success": True, "target": target_name, "amount": amount, "target_gold": target["gold"]})
+    return jsonify({"success": True, "target": target_name, "amount": amount, "target_gold": target["gold"], "updated_gold": sender["gold"]})
 
 
 if __name__ == "__main__":

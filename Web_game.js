@@ -1,28 +1,55 @@
 let currentPlayer = null;
 
 const statsElements = {
-  player: document.getElementById("stat-player"),
-  wd: document.getElementById("stat-wd"),
+  panel: document.getElementById("statsPanel"),
+  username: document.getElementById("stat-username"),
+  wl: document.getElementById("stat-wl"),
   gold: document.getElementById("stat-gold"),
-  totalMatches: document.getElementById("stat-total-matches"),
-  totalUnits: document.getElementById("stat-total-units"),
+  totalMatches: document.getElementById("stat-totalMatches"),
+  totalUnits: document.getElementById("stat-totalUnits"),
+  devBadge: document.getElementById("devBadge"),
 };
 
-function updateStats(player = null) {
+function setLoginButtonState(player = null) {
+  const loginButton = document.getElementById("loginBtn");
+
   if (!player) {
-    statsElements.player.textContent = "-";
-    statsElements.wd.textContent = "0 / 0";
-    statsElements.gold.textContent = "-";
-    statsElements.totalMatches.textContent = "0";
-    statsElements.totalUnits.textContent = "0";
+    loginButton.textContent = "LOG IN";
+    loginButton.disabled = false;
     return;
   }
 
-  statsElements.player.textContent = player.username;
-  statsElements.wd.textContent = `${player.wins ?? 0} / ${player.losses ?? 0}`;
-  statsElements.gold.textContent = String(player.gold ?? 0);
-  statsElements.totalMatches.textContent = String(player.total_matches ?? 0);
-  statsElements.totalUnits.textContent = "0";
+  loginButton.textContent = `LOGGED IN: ${player.username}`;
+  loginButton.disabled = true;
+}
+
+function updateDashboard() {
+  if (!currentPlayer) {
+    statsElements.username.textContent = "Guest";
+    statsElements.wl.textContent = "0 / 0";
+    statsElements.gold.textContent = "0";
+    statsElements.totalMatches.textContent = "0";
+    statsElements.totalUnits.textContent = "0";
+    statsElements.devBadge.hidden = true;
+    statsElements.panel.classList.remove("dev-highlight");
+    setLoginButtonState();
+    return;
+  }
+
+  statsElements.username.textContent = currentPlayer.username;
+  statsElements.wl.textContent = `${currentPlayer.wins ?? 0} / ${currentPlayer.losses ?? 0}`;
+  statsElements.gold.textContent = String(currentPlayer.gold ?? 0);
+  statsElements.totalMatches.textContent = String(currentPlayer.total_matches ?? 0);
+  statsElements.totalUnits.textContent = String(currentPlayer.total_deployed_units ?? 0);
+
+  const isDeveloper = currentPlayer.role === "developer";
+  statsElements.devBadge.hidden = !isDeveloper;
+  statsElements.panel.classList.toggle("dev-highlight", isDeveloper);
+
+  statsElements.panel.classList.remove("stat-animate");
+  void statsElements.panel.offsetWidth;
+  statsElements.panel.classList.add("stat-animate");
+  setTimeout(() => statsElements.panel.classList.remove("stat-animate"), 300);
 }
 
 function closePopup() {
@@ -121,7 +148,7 @@ async function apiPost(path, body) {
 }
 
 function renderDevButtons() {
-  const loginButton = document.getElementById("btn-login");
+  const loginButton = document.getElementById("loginBtn");
   let container = document.getElementById("dev-buttons");
 
   if (container) {
@@ -165,7 +192,7 @@ function openLoginPopup() {
     onSubmit: async ({ username, password }) => {
       const data = await apiPost("/api/login", { username, password });
       currentPlayer = data.player;
-      updateStats(currentPlayer);
+      updateDashboard();
       renderDevButtons();
       closePopup();
       return { message: "Login successful." };
@@ -216,8 +243,8 @@ function openDevSetGoldPopup() {
         amount: parsedAmount,
       });
 
-      currentPlayer.gold = data.gold;
-      updateStats(currentPlayer);
+      currentPlayer.gold = data.updated_gold;
+      updateDashboard();
       return { message: "Gold updated." };
     },
   });
@@ -243,12 +270,14 @@ function openDevSendGoldPopup() {
         amount: parsedAmount,
       });
 
+      currentPlayer.gold = data.updated_gold;
+      updateDashboard();
       return { message: `Sent ${data.amount} gold to ${data.target}.` };
     },
   });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  updateStats();
-  document.getElementById("btn-login").addEventListener("click", openLoginPopup);
+  updateDashboard();
+  document.getElementById("loginBtn").addEventListener("click", openLoginPopup);
 });
