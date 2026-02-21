@@ -10,26 +10,93 @@
   <div class="background">
     <h1 class="game-title">NAPOLEON TIMES</h1>
 
-    <div class="left-panel">
-      <div class="menu-buttons" aria-label="Main menu actions">
-        <button id="btn-play" class="menu-btn" type="button">PLAY</button>
-        <button id="btn-saved-maps" class="menu-btn" type="button">SAVED MAPS</button>
-        <button id="btn-settings" class="menu-btn" type="button">SETTINGS</button>
-      </div>
+    <div id="mainScene" class="scene">
+      <div class="left-panel">
+        <div class="menu-buttons" aria-label="Main menu actions">
+          <button id="btn-play" class="menu-btn" type="button">PLAY</button>
+          <button id="btn-saved-maps" class="menu-btn" type="button">SAVED MAPS</button>
+          <button id="btn-settings" class="menu-btn" type="button">SETTINGS</button>
+        </div>
 
-      <div id="statsPanel" class="stats-box" aria-label="Player stats">
-        <h2>START</h2>
-        <p><span class="label">PLAYER:</span> <span id="playerName">Guest</span></p>
-        <p><span class="label">GOLD:</span> <span id="goldValue">0</span></p>
-        <p><span class="label">XP:</span> <span id="xpValue">0</span></p>
-        <p><span class="label">LEVEL:</span> <span id="levelValue">1</span></p>
-        <p><span class="label">WINS:</span> <span id="winsValue">0</span></p>
-        <p><span class="label">LOSSES:</span> <span id="lossValue">0</span></p>
-        <p><span class="label">TOTAL MATCHES:</span> <span id="totalMatchesValue">0</span></p>
-        <p><span class="label">TOTAL DEPLOYED UNITS:</span> <span id="totalUnitsValue">0</span></p>
-      </div>
+        <div id="statsPanel" class="stats-box" aria-label="Player stats">
+          <h2>START</h2>
+          <p><span class="label">PLAYER:</span> <span id="playerName">Guest</span></p>
+          <p><span class="label">GOLD:</span> <span id="goldValue">0</span></p>
+          <p><span class="label">XP:</span> <span id="xpValue">0</span></p>
+          <p><span class="label">LEVEL:</span> <span id="levelValue">1</span></p>
+          <p><span class="label">WINS:</span> <span id="winsValue">0</span></p>
+          <p><span class="label">LOSSES:</span> <span id="lossValue">0</span></p>
+          <p><span class="label">TOTAL MATCHES:</span> <span id="totalMatchesValue">0</span></p>
+          <p><span class="label">TOTAL DEPLOYED UNITS:</span> <span id="totalUnitsValue">0</span></p>
+        </div>
 
-      <div id="devButtonsContainer" style="display: none;"></div>
+        <div id="devButtonsContainer" style="display: none;"></div>
+      </div>
+    </div>
+
+    <div id="settingsScene" class="scene" style="display: none;">
+      <div class="scene-panel settings-panel">
+        <h2>SETTINGS</h2>
+
+        <label for="masterVolume" class="setting-label">
+          Master Volume
+          <span id="masterVolumeValue">100</span>
+        </label>
+        <input id="masterVolume" type="range" min="0" max="100" value="100" />
+
+        <label for="sfxVolume" class="setting-label">
+          SFX Volume
+          <span id="sfxVolumeValue">100</span>
+        </label>
+        <input id="sfxVolume" type="range" min="0" max="100" value="100" />
+
+        <label for="mouseSensitivity" class="setting-label">
+          Mouse Sensitivity
+          <span id="mouseSensitivityValue">1.0</span>
+        </label>
+        <input id="mouseSensitivity" type="range" min="0.1" max="3" step="0.1" value="1" />
+
+        <div class="scene-actions">
+          <button id="btn-logout" class="menu-btn" type="button">LOGOUT</button>
+          <button id="btn-settings-close" class="menu-btn popup-cancel" type="button">CLOSE</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="playScene" class="scene" style="display: none;">
+      <div class="scene-panel">
+        <h2>PLAY PREPARATION</h2>
+        <p>Select Mode:</p>
+        <div class="option-stack">
+          <button class="menu-btn" type="button">Bot Mode</button>
+          <button class="menu-btn" type="button">LAN (Coming Soon)</button>
+        </div>
+
+        <p>Team Selection:</p>
+        <div class="option-stack">
+          <button class="menu-btn" type="button">Blue</button>
+          <button class="menu-btn" type="button">Red</button>
+        </div>
+
+        <div class="scene-actions">
+          <button class="menu-btn" type="button">Confirm</button>
+          <button id="btn-play-back" class="menu-btn popup-cancel" type="button">Back</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="mapsScene" class="scene" style="display: none;">
+      <div class="scene-panel">
+        <h2>MAP SELECTION</h2>
+        <ul class="map-list">
+          <li>Waterloo Plains</li>
+          <li>Desert Siege</li>
+          <li>Forest Ambush</li>
+        </ul>
+        <div class="scene-actions">
+          <button id="btn-maps-back" class="menu-btn popup-cancel" type="button">Back</button>
+        </div>
+      </div>
     </div>
 
     <button id="loginBtn" class="login-btn" type="button">LOG IN</button>

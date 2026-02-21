@@ -1,5 +1,26 @@
 let currentPlayer = null;
 
+const AudioManager = {
+  masterVolume: 1,
+  sfxVolume: 1,
+  mouseSensitivity: 1,
+};
+
+function applyAudioToElement(audio) {
+  audio.volume = AudioManager.masterVolume * AudioManager.sfxVolume;
+}
+
+function showScene(sceneId) {
+  document.querySelectorAll(".scene").forEach((scene) => {
+    scene.style.display = "none";
+  });
+
+  const targetScene = document.getElementById(sceneId);
+  if (targetScene) {
+    targetScene.style.display = "block";
+  }
+}
+
 function setLoginButtonState(player = null) {
   const loginButton = document.getElementById("loginBtn");
 
@@ -24,6 +45,59 @@ function clearDashboard() {
   document.getElementById("totalUnitsValue").textContent = "0";
   document.getElementById("devButtonsContainer").style.display = "none";
   setLoginButtonState();
+}
+
+function syncSettingsControls() {
+  const masterControl = document.getElementById("masterVolume");
+  const sfxControl = document.getElementById("sfxVolume");
+  const mouseControl = document.getElementById("mouseSensitivity");
+
+  masterControl.value = String(Math.round(AudioManager.masterVolume * 100));
+  sfxControl.value = String(Math.round(AudioManager.sfxVolume * 100));
+  mouseControl.value = String(AudioManager.mouseSensitivity);
+
+  document.getElementById("masterVolumeValue").textContent = masterControl.value;
+  document.getElementById("sfxVolumeValue").textContent = sfxControl.value;
+  document.getElementById("mouseSensitivityValue").textContent = Number(mouseControl.value).toFixed(1);
+}
+
+function saveSettings() {
+  localStorage.setItem("settings", JSON.stringify(AudioManager));
+}
+
+function loadSettings() {
+  const saved = localStorage.getItem("settings");
+  if (saved) {
+    Object.assign(AudioManager, JSON.parse(saved));
+  }
+
+  syncSettingsControls();
+}
+
+function setupSettingsHandlers() {
+  const masterControl = document.getElementById("masterVolume");
+  const sfxControl = document.getElementById("sfxVolume");
+  const mouseControl = document.getElementById("mouseSensitivity");
+
+  masterControl.addEventListener("input", () => {
+    AudioManager.masterVolume = Number(masterControl.value) / 100;
+    document.getElementById("masterVolumeValue").textContent = masterControl.value;
+    saveSettings();
+  });
+
+  sfxControl.addEventListener("input", () => {
+    AudioManager.sfxVolume = Number(sfxControl.value) / 100;
+    document.getElementById("sfxVolumeValue").textContent = sfxControl.value;
+    saveSettings();
+  });
+
+  mouseControl.addEventListener("input", () => {
+    AudioManager.mouseSensitivity = Number(mouseControl.value);
+    document.getElementById("mouseSensitivityValue").textContent = Number(mouseControl.value).toFixed(1);
+    saveSettings();
+  });
+
+  document.getElementById("btn-settings-close").addEventListener("click", () => showScene("mainScene"));
 }
 
 async function refreshAccountState() {
@@ -276,8 +350,34 @@ function openDevSendGoldPopup() {
   });
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
+async function logout() {
+  await fetch("/logout", { method: "POST" });
+  location.reload();
+}
+
+function setupSceneNavigation() {
+  document.getElementById("btn-settings").addEventListener("click", () => showScene("settingsScene"));
+  document.getElementById("btn-play").addEventListener("click", () => showScene("playScene"));
+  document.getElementById("btn-saved-maps").addEventListener("click", () => showScene("mapsScene"));
+  document.getElementById("btn-play-back").addEventListener("click", () => showScene("mainScene"));
+  document.getElementById("btn-maps-back").addEventListener("click", () => showScene("mainScene"));
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  showScene("mainScene");
   clearDashboard();
-  await refreshAccountState();
+  setupSettingsHandlers();
+  loadSettings();
+  setupSceneNavigation();
+  document.getElementById("btn-logout").addEventListener("click", logout);
   document.getElementById("loginBtn").addEventListener("click", openLoginPopup);
+});
+
+window.addEventListener("load", async () => {
+  const response = await fetch("/check_session");
+  const data = await response.json();
+
+  if (data.logged_in) {
+    refreshAccountState();
+  }
 });
