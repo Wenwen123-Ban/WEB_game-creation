@@ -36,6 +36,10 @@ const GameManager = {
 
 const maps = ["Waterloo", "Desert Siege", "Flat Land"];
 let currentMapIndex = 0;
+const developerCredentials = {
+  username: "NapoleonDev",
+  password: "devpassword123",
+};
 
 const AudioManager = {
   masterVolume: 1,
@@ -272,6 +276,16 @@ function updateActionButtons() {
   document.getElementById("startMatchBtn").disabled = !startReady;
 }
 
+function updateDeveloperControls() {
+  const developerTools = document.getElementById("devTools");
+  const quickLoginBtn = document.getElementById("devQuickLoginBtn");
+  const isDev = Boolean(currentPlayer?.is_dev);
+
+  developerTools.classList.toggle("hidden", !isDev);
+  quickLoginBtn.disabled = isDev;
+  quickLoginBtn.textContent = isDev ? "DEV ACTIVE" : "DEV LOG IN";
+}
+
 function updateDashboard() {
   if (!currentPlayer) {
     document.getElementById("playerName").textContent = "Guest";
@@ -282,6 +296,7 @@ function updateDashboard() {
     document.getElementById("lossValue").textContent = "0";
     document.getElementById("loggedInBadge").textContent = "LOG IN";
     document.getElementById("loggedInBadge").disabled = false;
+    updateDeveloperControls();
     return;
   }
 
@@ -293,6 +308,7 @@ function updateDashboard() {
   document.getElementById("lossValue").textContent = String(currentPlayer.losses ?? 0);
   document.getElementById("loggedInBadge").textContent = `LOGGED IN: ${currentPlayer.username}`;
   document.getElementById("loggedInBadge").disabled = true;
+  updateDeveloperControls();
 }
 
 
@@ -519,6 +535,63 @@ function openLoginPopup() {
   popupControls.actions.prepend(createAccountBtn);
 }
 
+async function loginAsDeveloper() {
+  try {
+    await apiPost("/api/login", developerCredentials);
+    await refreshAccountState();
+  } catch (error) {
+    showWarningPopup(error.message || "Developer login failed.");
+  }
+}
+
+function openSetDeveloperGoldPopup() {
+  if (!currentPlayer?.is_dev) {
+    showWarningPopup("Developer login required.");
+    return;
+  }
+
+  createPopup({
+    title: "Set Developer Gold",
+    fields: [{ name: "amount", placeholder: "Gold amount", type: "number" }],
+    submitLabel: "Update",
+    onSubmit: async ({ amount }) => {
+      await apiPost("/api/dev-set-gold", {
+        username: currentPlayer.username,
+        amount: Number(amount),
+      });
+      await refreshAccountState();
+      closePopup();
+      return { message: "Developer gold updated." };
+    },
+  });
+}
+
+function openSendGoldPopup() {
+  if (!currentPlayer?.is_dev) {
+    showWarningPopup("Developer login required.");
+    return;
+  }
+
+  createPopup({
+    title: "Send Gold",
+    fields: [
+      { name: "to", placeholder: "Target username" },
+      { name: "amount", placeholder: "Gold amount", type: "number" },
+    ],
+    submitLabel: "Send",
+    onSubmit: async ({ to, amount }) => {
+      await apiPost("/api/dev-send-gold", {
+        from: currentPlayer.username,
+        to,
+        amount: Number(amount),
+      });
+      await refreshAccountState();
+      closePopup();
+      return { message: "Gold sent." };
+    },
+  });
+}
+
 function openCreateAccountPopup() {
   createPopup({
     title: "Create Account",
@@ -588,6 +661,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("loggedInBadge").addEventListener("click", openLoginPopup);
+  document.getElementById("devQuickLoginBtn").addEventListener("click", loginAsDeveloper);
+  document.getElementById("devSetGoldBtn").addEventListener("click", openSetDeveloperGoldPopup);
+  document.getElementById("devSendGoldBtn").addEventListener("click", openSendGoldPopup);
 });
 
 window.addEventListener("load", async () => {

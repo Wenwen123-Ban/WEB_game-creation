@@ -258,6 +258,18 @@ body {
   margin-top: 6px;
 }
 
+.dashboard-dev-btn {
+  width: 100%;
+  min-height: 38px;
+  font-size: 0.95rem;
+}
+
+#devTools {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+}
+
 .scene-panel {
   position: fixed;
   left: 20px;
