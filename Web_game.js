@@ -1,15 +1,5 @@
 let currentPlayer = null;
 
-const statsElements = {
-  panel: document.getElementById("statsPanel"),
-  username: document.getElementById("stat-username"),
-  wl: document.getElementById("stat-wl"),
-  gold: document.getElementById("stat-gold"),
-  totalMatches: document.getElementById("stat-totalMatches"),
-  totalUnits: document.getElementById("stat-totalUnits"),
-  devBadge: document.getElementById("devBadge"),
-};
-
 function setLoginButtonState(player = null) {
   const loginButton = document.getElementById("loginBtn");
 
@@ -23,33 +13,51 @@ function setLoginButtonState(player = null) {
   loginButton.disabled = true;
 }
 
-function updateDashboard() {
-  if (!currentPlayer) {
-    statsElements.username.textContent = "Guest";
-    statsElements.wl.textContent = "0 / 0";
-    statsElements.gold.textContent = "0";
-    statsElements.totalMatches.textContent = "0";
-    statsElements.totalUnits.textContent = "0";
-    statsElements.devBadge.hidden = true;
-    statsElements.panel.classList.remove("dev-highlight");
-    setLoginButtonState();
-    return;
+function clearDashboard() {
+  document.getElementById("playerName").textContent = "Guest";
+  document.getElementById("goldValue").textContent = "0";
+  document.getElementById("xpValue").textContent = "0";
+  document.getElementById("levelValue").textContent = "1";
+  document.getElementById("winsValue").textContent = "0";
+  document.getElementById("lossValue").textContent = "0";
+  document.getElementById("totalMatchesValue").textContent = "0";
+  document.getElementById("totalUnitsValue").textContent = "0";
+  document.getElementById("devButtonsContainer").style.display = "none";
+  setLoginButtonState();
+}
+
+async function refreshAccountState() {
+  try {
+    const response = await fetch("/get_current_user");
+    const data = await response.json();
+
+    if (!data.success) {
+      currentPlayer = null;
+      clearDashboard();
+      renderDevButtons();
+      return;
+    }
+
+    const user = data.user;
+    currentPlayer = user;
+
+    document.getElementById("playerName").textContent = `${user.username}${user.is_dev ? " [DEV]" : ""}`;
+    document.getElementById("goldValue").textContent = String(user.gold ?? 0);
+    document.getElementById("xpValue").textContent = String(user.xp ?? 0);
+    document.getElementById("levelValue").textContent = String(user.level ?? 1);
+    document.getElementById("winsValue").textContent = String(user.wins ?? 0);
+    document.getElementById("lossValue").textContent = String(user.losses ?? 0);
+    document.getElementById("totalMatchesValue").textContent = String(user.total_matches ?? 0);
+    document.getElementById("totalUnitsValue").textContent = String(user.total_units ?? 0);
+
+    const devButtons = document.getElementById("devButtonsContainer");
+    devButtons.style.display = user.is_dev ? "block" : "none";
+
+    setLoginButtonState({ username: user.username });
+    renderDevButtons();
+  } catch (error) {
+    console.error("Failed to refresh account:", error);
   }
-
-  statsElements.username.textContent = currentPlayer.username;
-  statsElements.wl.textContent = `${currentPlayer.wins ?? 0} / ${currentPlayer.losses ?? 0}`;
-  statsElements.gold.textContent = String(currentPlayer.gold ?? 0);
-  statsElements.totalMatches.textContent = String(currentPlayer.total_matches ?? 0);
-  statsElements.totalUnits.textContent = String(currentPlayer.total_deployed_units ?? 0);
-
-  const isDeveloper = currentPlayer.role === "developer";
-  statsElements.devBadge.hidden = !isDeveloper;
-  statsElements.panel.classList.toggle("dev-highlight", isDeveloper);
-
-  statsElements.panel.classList.remove("stat-animate");
-  void statsElements.panel.offsetWidth;
-  statsElements.panel.classList.add("stat-animate");
-  setTimeout(() => statsElements.panel.classList.remove("stat-animate"), 300);
 }
 
 function closePopup() {
@@ -149,20 +157,15 @@ async function apiPost(path, body) {
 }
 
 function renderDevButtons() {
-  const loginButton = document.getElementById("loginBtn");
-  let container = document.getElementById("dev-buttons");
+  const container = document.getElementById("devButtonsContainer");
+  container.innerHTML = "";
 
-  if (container) {
-    container.remove();
-  }
-
-  if (!currentPlayer || currentPlayer.role !== "developer") {
+  if (!currentPlayer || !currentPlayer.is_dev) {
     return;
   }
 
-  container = document.createElement("div");
-  container.id = "dev-buttons";
-  container.className = "dev-buttons";
+  const controls = document.createElement("div");
+  controls.className = "dev-buttons";
 
   const setGold = document.createElement("button");
   setGold.type = "button";
@@ -176,10 +179,9 @@ function renderDevButtons() {
   sendGold.textContent = "DEV: Send Gold";
   sendGold.addEventListener("click", openDevSendGoldPopup);
 
-  container.appendChild(setGold);
-  container.appendChild(sendGold);
-
-  loginButton.insertAdjacentElement("beforebegin", container);
+  controls.appendChild(setGold);
+  controls.appendChild(sendGold);
+  container.appendChild(controls);
 }
 
 function openLoginPopup() {
@@ -191,10 +193,8 @@ function openLoginPopup() {
     ],
     submitLabel: "Login",
     onSubmit: async ({ username, password }) => {
-      const data = await apiPost("/api/login", { username, password });
-      currentPlayer = data.player;
-      updateDashboard();
-      renderDevButtons();
+      await apiPost("/api/login", { username, password });
+      await refreshAccountState();
       closePopup();
       return { message: "Login successful." };
     },
@@ -220,10 +220,10 @@ function openCreateAccountPopup() {
     ],
     submitLabel: "Create Account",
     onSubmit: async ({ username, password }) => {
-      const data = await apiPost("/api/create-account", { username, password });
+      await apiPost("/api/create-account", { username, password });
+      await refreshAccountState();
       closePopup();
-      alert("Account created successfully. Please log in.");
-      return data;
+      return { message: "Account created successfully." };
     },
   });
 }
@@ -239,13 +239,12 @@ function openDevSetGoldPopup() {
         throw new Error("Amount must be a non-negative integer.");
       }
 
-      const data = await apiPost("/api/dev-set-gold", {
+      await apiPost("/api/dev-set-gold", {
         username: currentPlayer.username,
         amount: parsedAmount,
       });
 
-      currentPlayer.gold = data.updated_gold;
-      updateDashboard();
+      await refreshAccountState();
       return { message: "Gold updated." };
     },
   });
@@ -271,14 +270,14 @@ function openDevSendGoldPopup() {
         amount: parsedAmount,
       });
 
-      currentPlayer.gold = data.updated_gold;
-      updateDashboard();
+      await refreshAccountState();
       return { message: `Sent ${data.amount} gold to ${data.target}.` };
     },
   });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  updateDashboard();
+document.addEventListener("DOMContentLoaded", async () => {
+  clearDashboard();
+  await refreshAccountState();
   document.getElementById("loginBtn").addEventListener("click", openLoginPopup);
 });
