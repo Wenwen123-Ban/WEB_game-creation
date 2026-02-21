@@ -120,9 +120,10 @@ function createPopup({ title, fields, onSubmit, submitLabel = "Confirm" }) {
     }
   });
 
+  form.appendChild(actions);
+
   popup.appendChild(heading);
   popup.appendChild(form);
-  popup.appendChild(actions);
   popup.appendChild(message);
   overlay.appendChild(popup);
   document.body.appendChild(overlay);
