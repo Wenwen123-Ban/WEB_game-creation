@@ -37,6 +37,10 @@ const BOT_DIFFICULTY = {
   },
 };
 
+let currentMode = "vsbot";
+let lanLobbies = [];
+let activeLobbyId = null;
+
 function showScreen(screenId) {
   document.querySelectorAll(".screen").forEach((screen) => {
     screen.style.display = "none";
@@ -100,15 +104,17 @@ const GameManager = {
       return;
     }
 
-    await apiPost("/create_match", {
-      host: currentPlayer.username,
-      map: this.selectedMapId,
-      mode: this.selectedMode,
-      players: this.playerCount,
-      time: this.gameTime,
-      team: this.selectedTeam,
-      status: "pending",
-    });
+    if (currentMode === "vsbot") {
+      await apiPost("/create_match", {
+        host: currentPlayer.username,
+        map: this.selectedMapId,
+        mode: this.selectedMode,
+        players: this.playerCount,
+        time: this.gameTime,
+        team: this.selectedTeam,
+        status: "pending",
+      });
+    }
 
     units = [];
     EconomyManager.initMatchPlayers();
@@ -1022,6 +1028,20 @@ function setAppState(stateId) {
 
 function goBack() {
   if (GAME_STATE === "lobby") {
+    if (currentMode === "lan") {
+      const lobby = getActiveLobby();
+      const username = currentPlayer?.username;
+      if (lobby && username) {
+        if (lobby.hostName === username) {
+          lanLobbies = lanLobbies.filter((entry) => entry.id !== lobby.id);
+        } else {
+          lobby.players = lobby.players.filter((player) => player.name !== username);
+        }
+      }
+      activeLobbyId = null;
+      setSetupControlsDisabled(false);
+      renderLanServerList();
+    }
     setAppState("mapSelection");
     return;
   }
@@ -1039,7 +1059,16 @@ function setSetupChoice(stateKey, domType, value, button) {
   button.classList.add("active");
 
   if (stateKey === "selectedMode") {
+    currentMode = normalizeModeLabel(value);
+    if (currentMode === "vsbot") {
+      GameManager.selectedDifficulty = GameManager.selectedDifficulty || "medium";
+    } else {
+      GameManager.selectedDifficulty = null;
+      GameManager.playerCount = GameManager.playerCount || 2;
+      GameManager.gameTime = GameManager.gameTime || 15;
+    }
     resetTeams();
+    updateModeUI();
   }
 
   updateActionButtons();
@@ -1212,9 +1241,155 @@ function renderMapPreview(map) {
   });
 }
 
+function normalizeModeLabel(modeLabel) {
+  return modeLabel === "LAN" ? "lan" : "vsbot";
+}
+
+function getActiveLobby() {
+  return lanLobbies.find((lobby) => lobby.id === activeLobbyId) || null;
+}
+
+function getLobbyMaxPlayers(lobbyMode) {
+  return lobbyMode === "2v2" ? 4 : 2;
+}
+
+function isLobbyFull(lobby) {
+  return lobby.players.length >= lobby.maxPlayers;
+}
+
+function renderLanServerList() {
+  const list = document.getElementById("lanServerList");
+  if (!list) {
+    return;
+  }
+
+  list.innerHTML = "";
+  const waitingLobbies = lanLobbies.filter((lobby) => lobby.status === "waiting");
+
+  if (waitingLobbies.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "No active lobbies yet.";
+    list.appendChild(empty);
+    return;
+  }
+
+  waitingLobbies.forEach((lobby) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "menu-btn lan-lobby-card";
+    card.innerHTML = `<strong>${lobby.hostName} at ${lobby.mapName}</strong><span>${lobby.players.length}/${lobby.maxPlayers} | ${lobby.gameTime} Minutes | ${lobby.status}</span>`;
+    card.disabled = isLobbyFull(lobby);
+    card.addEventListener("click", () => joinLanLobby(lobby.id));
+    list.appendChild(card);
+  });
+}
+
+function updateModeUI() {
+  const isLan = currentMode === "lan";
+  document.getElementById("difficultySection")?.classList.toggle("hidden", isLan);
+  document.getElementById("gameTimeSection")?.classList.toggle("hidden", isLan);
+  document.getElementById("playerCountSection")?.classList.toggle("hidden", isLan);
+  document.getElementById("lanLobbySection")?.classList.toggle("hidden", !isLan);
+  document.getElementById("confirmSetupBtn")?.classList.toggle("hidden", isLan);
+
+  renderLanServerList();
+  updateActionButtons();
+}
+
+function setSetupControlsDisabled(disabled) {
+  document.querySelectorAll('.setup-choice').forEach((btn) => {
+    if (btn.dataset.type !== "mode") {
+      btn.disabled = disabled;
+    }
+  });
+  const createLobbyBtn = document.getElementById("createLobbyBtn");
+  if (createLobbyBtn) {
+    createLobbyBtn.disabled = disabled;
+  }
+}
+
+function createLanLobby() {
+  if (!currentPlayer) {
+    showWarningPopup("Please login first.");
+    return;
+  }
+
+  if (!GameManager.selectedMapId || !GameManager.playerCount || !GameManager.gameTime) {
+    showWarningPopup("Select map, mode size, and game time before creating a lobby.");
+    return;
+  }
+
+  const lobbyMode = GameManager.playerCount === 4 ? "2v2" : "1v1";
+  const mapName = getSelectedMap()?.name || "Unknown Map";
+  const hostName = currentPlayer.username;
+  const duplicate = lanLobbies.some((lobby) => lobby.status === "waiting" && lobby.players.some((player) => player.name === hostName));
+  if (duplicate) {
+    showWarningPopup("You are already in an active LAN lobby.");
+    return;
+  }
+
+  const lobby = {
+    id: `lan-${Date.now()}`,
+    hostName,
+    mapName,
+    mapId: GameManager.selectedMapId,
+    mode: lobbyMode,
+    gameTime: GameManager.gameTime,
+    players: [{ name: hostName, team: null }],
+    maxPlayers: getLobbyMaxPlayers(lobbyMode),
+    status: "waiting",
+  };
+
+  lanLobbies.push(lobby);
+  activeLobbyId = lobby.id;
+  GameManager.selectedMode = "LAN";
+  GameManager.playerCount = lobby.maxPlayers;
+  GameManager.teams = { blue: [], red: [] };
+  GameManager.selectedTeam = null;
+  GameManager.selectedMapId = lobby.mapId;
+  setSetupControlsDisabled(true);
+  renderLanServerList();
+  setAppState("teamSelection");
+}
+
+function joinLanLobby(lobbyId) {
+  if (!currentPlayer) {
+    showWarningPopup("Please login first.");
+    return;
+  }
+
+  const lobby = lanLobbies.find((entry) => entry.id === lobbyId);
+  if (!lobby || lobby.status !== "waiting") {
+    showWarningPopup("Lobby is unavailable.");
+    return;
+  }
+
+  if (isLobbyFull(lobby)) {
+    showWarningPopup("Lobby is full.");
+    return;
+  }
+
+  if (lobby.players.some((player) => player.name === currentPlayer.username)) {
+    showWarningPopup("Duplicate player names are not allowed in the same lobby.");
+    return;
+  }
+
+  lobby.players.push({ name: currentPlayer.username, team: null });
+  activeLobbyId = lobby.id;
+  GameManager.selectedMode = "LAN";
+  GameManager.playerCount = lobby.maxPlayers;
+  GameManager.gameTime = lobby.gameTime;
+  GameManager.selectedMapId = lobby.mapId;
+  GameManager.selectedTeam = null;
+  setSetupControlsDisabled(true);
+  setAppState("teamSelection");
+}
+
 function resetTeams() {
   GameManager.selectedTeam = null;
   GameManager.teams = { blue: [], red: [] };
+  activeLobbyId = null;
+  setSetupControlsDisabled(false);
 }
 
 function ensureTeamSlots() {
@@ -1253,6 +1428,33 @@ function joinTeam(team) {
     return;
   }
 
+  if (currentMode === "lan") {
+    const lobby = getActiveLobby();
+    if (!lobby || lobby.status !== "waiting") {
+      showWarningPopup("Join a valid LAN lobby first.");
+      return;
+    }
+
+    const slotsPerTeam = lobby.mode === "2v2" ? 2 : 1;
+    const teamCount = lobby.players.filter((player) => player.team === team).length;
+    if (teamCount >= slotsPerTeam) {
+      showWarningPopup("Team is full for now.");
+      return;
+    }
+
+    const playerRow = lobby.players.find((player) => player.name === currentPlayer.username);
+    if (!playerRow) {
+      showWarningPopup("You are not a member of this lobby.");
+      return;
+    }
+
+    playerRow.team = team;
+    GameManager.selectedTeam = team;
+    renderTeamSlots();
+    updateActionButtons();
+    return;
+  }
+
   ensureTeamSlots();
   const username = currentPlayer.username;
   const otherTeam = team === "blue" ? "red" : "blue";
@@ -1287,6 +1489,14 @@ function teamReady() {
     return false;
   }
 
+  if (currentMode === "lan") {
+    const lobby = getActiveLobby();
+    if (!lobby) {
+      return false;
+    }
+    return lobby.players.length === lobby.maxPlayers && lobby.players.every((player) => player.team === "blue" || player.team === "red");
+  }
+
   if (GameManager.selectedMode === "VS BOT") {
     const oppositeTeam = GameManager.selectedTeam === "blue" ? "red" : "blue";
     return GameManager.teams[oppositeTeam].every((name) => name.startsWith("BOT"));
@@ -1296,7 +1506,59 @@ function teamReady() {
 }
 
 function renderTeamSlots() {
+  const lobbyMeta = document.getElementById("lobbyMeta");
+
+  if (currentMode === "lan") {
+    const lobby = getActiveLobby();
+    if (!lobby) {
+      return;
+    }
+
+    const slots = lobby.mode === "2v2" ? 2 : 1;
+    const title = lobby.hostName === currentPlayer?.username ? "LOBBY WAITING ROOM" : "TEAM SELECTION";
+    document.getElementById("teamSectionTitle").textContent = title;
+    if (lobbyMeta) {
+      lobbyMeta.classList.remove("hidden");
+      lobbyMeta.textContent = `${lobby.hostName} at ${lobby.mapName} | ${lobby.players.length}/${lobby.maxPlayers} | ${lobby.gameTime} Minutes | ${lobby.status}`;
+    }
+
+    const teams = { blue: [], red: [] };
+    lobby.players.forEach((player) => {
+      if (player.team === "blue" || player.team === "red") {
+        teams[player.team].push(player.name);
+      }
+    });
+    GameManager.teams = {
+      blue: [...teams.blue],
+      red: [...teams.red],
+    };
+
+    ["blue", "red"].forEach((team) => {
+      const container = document.getElementById(`${team}TeamList`);
+      container.innerHTML = "";
+      for (let i = 0; i < slots; i += 1) {
+        const item = document.createElement("li");
+        item.textContent = teams[team][i] || `OPEN SLOT ${i + 1}`;
+        container.appendChild(item);
+      }
+
+      const btn = document.querySelector(`.join-btn[data-team="${team}"]`);
+      const teamFull = teams[team].length >= slots;
+      btn.disabled = teamFull;
+      btn.classList.toggle("active", GameManager.selectedTeam === team);
+    });
+
+    const isHost = lobby.hostName === currentPlayer?.username;
+    const startBtn = document.getElementById("startMatchBtn");
+    startBtn.classList.toggle("hidden", !isHost);
+    startBtn.disabled = !teamReady() || lobby.status !== "waiting";
+    return;
+  }
+
   ensureTeamSlots();
+  if (lobbyMeta) {
+    lobbyMeta.classList.add("hidden");
+  }
 
   if (GameManager.selectedMode === "VS BOT") {
     autoAssignBotsForVsBot();
@@ -1314,11 +1576,13 @@ function renderTeamSlots() {
       item.textContent = name || `OPEN SLOT ${index + 1}`;
       container.appendChild(item);
     });
+
+    const btn = document.querySelector(`.join-btn[data-team="${team}"]`);
+    btn.disabled = false;
+    btn.classList.toggle("active", GameManager.selectedTeam === team);
   });
 
-  document.querySelectorAll(".join-btn").forEach((btn) => {
-    btn.classList.toggle("active", GameManager.selectedTeam === btn.dataset.team);
-  });
+  document.getElementById("startMatchBtn").classList.remove("hidden");
 }
 
 function setupChoiceBinding() {
@@ -1348,18 +1612,39 @@ function setupChoiceBinding() {
 }
 
 function updateActionButtons() {
+  const confirmButton = document.getElementById("confirmSetupBtn");
+  const startButton = document.getElementById("startMatchBtn");
+
+  if (currentMode === "lan") {
+    if (confirmButton) {
+      confirmButton.disabled = true;
+    }
+    const createLobbyBtn = document.getElementById("createLobbyBtn");
+    const canCreateLobby = Boolean(GameManager.selectedMapId && GameManager.playerCount && GameManager.gameTime);
+    if (createLobbyBtn) {
+      createLobbyBtn.disabled = !canCreateLobby;
+    }
+    const lobby = getActiveLobby();
+    const isHost = lobby?.hostName === currentPlayer?.username;
+    if (startButton) {
+      startButton.classList.toggle("hidden", !isHost && GAME_STATE === "lobby");
+      startButton.disabled = !(isHost && teamReady() && lobby?.status === "waiting");
+    }
+    return;
+  }
+
   const confirmReady = Boolean(
-      GameManager.selectedMode &&
-      GameManager.playerCount &&
-      GameManager.gameTime &&
-      GameManager.selectedDifficulty &&
-      GameManager.selectedMapId,
+    GameManager.selectedMode
+    && GameManager.playerCount
+    && GameManager.gameTime
+    && GameManager.selectedDifficulty
+    && GameManager.selectedMapId,
   );
 
-  document.getElementById("confirmSetupBtn").disabled = !confirmReady;
+  confirmButton.disabled = !confirmReady;
 
   const startReady = Boolean(confirmReady && teamReady());
-  document.getElementById("startMatchBtn").disabled = !startReady;
+  startButton.disabled = !startReady;
 }
 
 function updateDeveloperControls() {
@@ -1697,6 +1982,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupSettingsHandlers();
   loadSettings();
   updateMapPreview();
+  updateModeUI();
 
   addListenerById("backBtn", "click", goBack);
   addListenerById("btn-play", "click", () => setAppState("mapSelection"));
@@ -1719,6 +2005,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     currentMapIndex = (currentMapIndex - 1 + maps.length) % maps.length;
     updateMapPreview();
+    updateModeUI();
   });
   addListenerById("btn-map-next", "click", () => {
     const maps = getMapsOrLogError();
@@ -1728,6 +2015,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     currentMapIndex = (currentMapIndex + 1) % maps.length;
     updateMapPreview();
+    updateModeUI();
   });
 
   addListenerById("confirmSetupBtn", "click", () => {
@@ -1740,6 +2028,8 @@ document.addEventListener("DOMContentLoaded", () => {
     showWarningPopup("Complete mode, player number, game time, difficulty, and map before continuing.");
   });
 
+  addListenerById("createLobbyBtn", "click", createLanLobby);
+
   document.querySelectorAll(".join-btn").forEach((btn) => {
     btn.addEventListener("click", () => joinTeam(btn.dataset.team));
   });
@@ -1747,6 +2037,27 @@ document.addEventListener("DOMContentLoaded", () => {
   addListenerById("startMatchBtn", "click", async () => {
     if (!teamReady()) {
       showWarningPopup("Please complete a valid team assignment.");
+      return;
+    }
+
+    if (currentMode === "lan") {
+      const lobby = getActiveLobby();
+      if (!lobby || lobby.hostName !== currentPlayer?.username) {
+        showWarningPopup("Only the host can start this match.");
+        return;
+      }
+      if (lobby.players.length < lobby.maxPlayers) {
+        showWarningPopup("All player slots must be filled before starting.");
+        return;
+      }
+      lobby.status = "started";
+      renderLanServerList();
+      renderTeamSlots();
+      enterGame();
+      GameplayMapRenderer.init(getSelectedMap());
+      MatchFlowManager.init();
+      UIManager.initGameplayUI();
+      updateDashboard();
       return;
     }
 
