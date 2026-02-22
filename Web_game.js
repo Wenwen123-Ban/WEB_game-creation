@@ -5,72 +5,36 @@ const WORLD_HEIGHT = 2000;
 let GAME_STATE = "menu";
 let currentPlayer = null;
 let units = [];
-let projectiles = [];
-let effects = [];
 let isPaused = false;
 
-const UNIT_STATS = {
-  rifleman: {
-    cost: 100, hp: 100, damage: 10, range: 120, speed: 1.5, cooldown: 800,
-  },
-  grenadier: {
-    cost: 200, hp: 150, damage: 25, range: 140, speed: 1.2, cooldown: 1200,
-  },
-  cavalry: {
-    cost: 300, hp: 200, damage: 20, range: 60, speed: 2.5, cooldown: 600,
-  },
-  artillery: {
-    cost: 500, hp: 180, damage: 50, range: 300, speed: 0.5, cooldown: 2000,
-  },
-};
+const UNIT_COST = 10;
+const UNIT_SPEED = 120;
+const UNIT_COLLISION_DISTANCE = 24;
+const FORMATION_MODES = { ATTACK: "attack", DEFENSE: "defense" };
 
 const GAMEPLAY_CONFIG = {
   maxUnitsPerPlayer: 50,
-  passiveGoldAmount: 5,
+  maxTotalUnits: 100,
+  passiveGoldAmount: 2,
   passiveGoldIntervalMs: 3000,
-  botThinkIntervalMs: 2500,
+  startingGold: 100,
+  baseGoldCap: 100,
+  captureGoldCapBonus: 50,
 };
 
 const BOT_DIFFICULTY = {
   easy: {
-    thinkIntervalMs: 3200,
-    spawnChance: 0.55,
-    damageMultiplier: 0.85,
-    hpMultiplier: 0.9,
-    rangeMultiplier: 0.95,
-    formationSize: 2,
-    preferredUnits: ["rifleman", "grenadier"],
-    napoleonSkillCooldownMs: 11000,
+    spawnIntervalMs: 5000,
+    behavior: "passive",
   },
   medium: {
-    thinkIntervalMs: 2200,
-    spawnChance: 0.8,
-    damageMultiplier: 1,
-    hpMultiplier: 1.05,
-    rangeMultiplier: 1,
-    formationSize: 3,
-    preferredUnits: ["rifleman", "grenadier", "cavalry"],
-    napoleonSkillCooldownMs: 8500,
+    spawnIntervalMs: 3000,
+    behavior: "adaptive",
   },
   hard: {
-    thinkIntervalMs: 1300,
-    spawnChance: 1,
-    damageMultiplier: 1.25,
-    hpMultiplier: 1.2,
-    rangeMultiplier: 1.1,
-    formationSize: 5,
-    preferredUnits: ["grenadier", "cavalry", "artillery", "rifleman"],
-    napoleonSkillCooldownMs: 6000,
+    spawnIntervalMs: 200,
+    behavior: "strategic",
   },
-};
-
-const OBJECTIVE_CONFIG = {
-  town: { maxHp: 220, radius: 65 },
-  capital: { maxHp: 320, radius: 80 },
-};
-
-const MATCH_RULES = {
-  captureRewardGold: 180,
 };
 
 function showScreen(screenId) {
@@ -147,8 +111,6 @@ const GameManager = {
     });
 
     units = [];
-    projectiles = [];
-    effects = [];
     EconomyManager.initMatchPlayers();
     enterGame();
     GameplayMapRenderer.init(getSelectedMap());
@@ -181,7 +143,9 @@ const EconomyManager = {
       id: "human",
       name: humanName,
       team: GameManager.selectedTeam || "blue",
-      gold: Number(currentPlayer?.gold ?? 1000),
+      gold: GAMEPLAY_CONFIG.startingGold,
+      goldCap: GAMEPLAY_CONFIG.baseGoldCap,
+      formationMode: FORMATION_MODES.DEFENSE,
       units: [],
       totalUnitsCreated: 0,
       totalUnitsLost: 0,
@@ -192,7 +156,9 @@ const EconomyManager = {
       id: `bot-${team}-${index}`,
       name,
       team,
-      gold: 1000,
+      gold: GAMEPLAY_CONFIG.startingGold,
+      goldCap: GAMEPLAY_CONFIG.baseGoldCap,
+      formationMode: FORMATION_MODES.DEFENSE,
       units: [],
       totalUnitsCreated: 0,
       totalUnitsLost: 0,
@@ -228,7 +194,9 @@ const EconomyManager = {
         if (!name || name === humanName || !name.startsWith("BOT")) {
           return;
         }
-        this.botPlayers.push(addBot(name, team, index + 1));
+        const bot = addBot(name, team, index + 1);
+        bot.teammateHuman = team === this.humanPlayer.team && GameManager.playerCount === 4;
+        this.botPlayers.push(bot);
       });
     });
 
@@ -241,27 +209,29 @@ const EconomyManager = {
     this.incomeAccumulatorMs = 0;
     UIManager.syncGoldDisplay();
   },
-  canAfford(player, unitType) {
-    return player.gold >= UNIT_STATS[unitType].cost;
+  canAfford(player, amount = UNIT_COST) {
+    return player.gold >= amount;
   },
   addGold(player, amount) {
-    player.gold += amount;
+    player.gold = Math.min(player.goldCap, player.gold + amount);
     UIManager.syncGoldDisplay();
     UIManager.updateSpawnButtons();
   },
-  spendGold(player, unitType) {
-    if (!this.canAfford(player, unitType)) {
+  spendGold(player, amount = UNIT_COST) {
+    if (!this.canAfford(player, amount)) {
       UIManager.flashMessage("Not enough gold", "error");
       return false;
     }
-    player.gold -= UNIT_STATS[unitType].cost;
+    player.gold -= amount;
     UIManager.syncGoldDisplay();
     return true;
   },
-  grantObjectiveReward(team, objectiveName) {
-    const recipients = this.players.filter((player) => player.team === team);
-    recipients.forEach((player) => this.addGold(player, MATCH_RULES.captureRewardGold));
-    UIManager.flashMessage(`${team.toUpperCase()} captured ${objectiveName} (+${MATCH_RULES.captureRewardGold} gold)`);
+  increaseTeamGoldCap(team, amount) {
+    this.players.filter((player) => player.team === team).forEach((player) => {
+      player.goldCap += amount;
+      player.gold = Math.min(player.gold, player.goldCap);
+    });
+    UIManager.flashMessage(`${team.toUpperCase()} captured area (+${amount} gold cap)`);
   },
   update(deltaSeconds) {
     this.incomeAccumulatorMs += deltaSeconds * 1000;
@@ -272,100 +242,41 @@ const EconomyManager = {
   },
 };
 
-const EffectsManager = {
-  createFlash(x, y) {
-    effects.push({ type: "flash", x, y, age: 0, duration: 200, radius: 10 });
-  },
-  createHitSpark(x, y) {
-    effects.push({ type: "hit", x, y, age: 0, duration: 240, radius: 8 });
-  },
-  createDeathFade(unit) {
-    effects.push({
-      type: "death", x: unit.x, y: unit.y, age: 0, duration: 600, radius: 12, team: unit.team,
-    });
-  },
-  update(deltaSeconds) {
-    effects = effects.filter((effect) => {
-      effect.age += deltaSeconds * 1000;
-      return effect.age < effect.duration;
-    });
-  },
-  draw(ctx, camera) {
-    effects.forEach((effect) => {
-      const progress = effect.age / effect.duration;
-      const screenX = (effect.x - camera.x) * camera.zoom;
-      const screenY = (effect.y - camera.y) * camera.zoom;
-      ctx.save();
-      if (effect.type === "flash") {
-        ctx.strokeStyle = `rgba(255, 236, 133, ${1 - progress})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, (effect.radius + progress * 14) * camera.zoom, 0, Math.PI * 2);
-        ctx.stroke();
-      } else if (effect.type === "hit") {
-        ctx.fillStyle = `rgba(220, 36, 36, ${1 - progress})`;
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, (effect.radius * (1 + progress)) * camera.zoom, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (effect.type === "death") {
-        const color = effect.team === "blue" ? "31,87,214" : "216,49,49";
-        ctx.fillStyle = `rgba(${color}, ${0.5 * (1 - progress)})`;
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, (effect.radius + progress * 24) * camera.zoom, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-    });
-  },
-};
-
 class Unit {
-  constructor(x, y, owner, type = "rifleman") {
+  constructor(x, y, owner) {
+    this.id = `${owner.id}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     this.x = x;
     this.y = y;
     this.targetX = x;
     this.targetY = y;
     this.owner = owner;
     this.team = owner.team;
-    this.type = type;
-    this.stats = UNIT_STATS[type];
-    this.speed = this.stats.speed * 80;
-    this.maxHp = this.stats.hp;
-    this.hp = this.maxHp;
-    this.damage = this.stats.damage;
-    this.range = this.stats.range;
-    this.cooldown = this.stats.cooldown;
-    this.lastAttackAt = 0;
+    this.strength = Math.floor(Math.random() * 99) + 1;
+    this.state = "idle";
+    this.formationRole = "infantry";
     this.isSelected = false;
-    this.isBoosted = false;
   }
 
   update(deltaSeconds) {
     const dx = this.targetX - this.x;
     const dy = this.targetY - this.y;
     const distance = Math.hypot(dx, dy);
-
-    if (distance < 0.01) {
-      this.x = this.targetX;
-      this.y = this.targetY;
-      return;
-    }
-
-    const step = this.speed * deltaSeconds;
+    if (distance < 0.01) return;
+    const step = UNIT_SPEED * deltaSeconds;
     if (distance <= step) {
       this.x = this.targetX;
       this.y = this.targetY;
       return;
     }
-
     const ratio = step / distance;
     this.x += dx * ratio;
     this.y += dy * ratio;
   }
 
-  moveTo(x, y) {
+  moveTo(x, y, state = "moving") {
     this.targetX = x;
     this.targetY = y;
+    this.state = state;
   }
 
   draw(ctx, camera) {
@@ -375,60 +286,28 @@ class Unit {
 
     ctx.save();
     ctx.fillStyle = fillColor;
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, 10 * camera.zoom, 0, Math.PI * 2);
+    ctx.fill();
 
-    switch (this.type) {
-      case "grenadier": {
-        const size = 14 * camera.zoom;
-        ctx.fillRect(screenX - size / 2, screenY - size / 2, size, size);
-        break;
-      }
-      case "cavalry": {
-        const radius = 8 * camera.zoom;
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
-        ctx.fill();
-        break;
-      }
-      case "artillery": {
-        const width = 20 * camera.zoom;
-        const height = 12 * camera.zoom;
-        ctx.fillRect(screenX - width / 2, screenY - height / 2, width, height);
-        break;
-      }
-      case "rifleman":
-      default: {
-        const width = 12 * camera.zoom;
-        const height = 8 * camera.zoom;
-        ctx.fillRect(screenX - width / 2, screenY - height / 2, width, height);
-      }
-    }
-
-    const hpRatio = Math.max(0, this.hp / this.maxHp);
-    const barWidth = 20 * camera.zoom;
-    const barHeight = 3 * camera.zoom;
-    const barX = screenX - barWidth / 2;
-    const barY = screenY - 16 * camera.zoom;
-    ctx.fillStyle = "#8d1d1d";
-    ctx.fillRect(barX, barY, barWidth, barHeight);
-    ctx.fillStyle = "#3db63d";
-    ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `${Math.max(10, 10 * camera.zoom)}px Arial`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(Math.round(this.strength)), screenX, screenY);
 
     if (this.isSelected) {
       ctx.strokeStyle = "#ffe066";
       ctx.lineWidth = 2;
-      ctx.shadowColor = "#ffe066";
-      ctx.shadowBlur = 10;
       ctx.beginPath();
-      ctx.arc(screenX, screenY, 12 * camera.zoom, 0, Math.PI * 2);
+      ctx.arc(screenX, screenY, 13 * camera.zoom, 0, Math.PI * 2);
       ctx.stroke();
     }
-
     ctx.restore();
   }
 
   containsPoint(worldX, worldY) {
-    const hitRadius = 14;
-    return Math.hypot(worldX - this.x, worldY - this.y) <= hitRadius;
+    return Math.hypot(worldX - this.x, worldY - this.y) <= 14;
   }
 }
 
@@ -436,42 +315,35 @@ const SpawnManager = {
   getSpawnPoint(player) {
     return GameplayMapRenderer.map?.spawnPoints?.[player.team] || { x: 300, y: 300 };
   },
-  spawnUnit(player, type, options = {}) {
-    if (!UNIT_STATS[type]) {
+  spawnUnit(player, options = {}) {
+    if (units.length >= GAMEPLAY_CONFIG.maxTotalUnits) {
       return null;
     }
-
     if (player.units.length >= GAMEPLAY_CONFIG.maxUnitsPerPlayer) {
       UIManager.flashMessage(`${player.name} reached max units`, "error");
       return null;
     }
-
-    if (!options.skipCost && !EconomyManager.spendGold(player, type)) {
+    if (!options.skipCost && !EconomyManager.spendGold(player, UNIT_COST)) {
       UIManager.updateSpawnButtons();
       return null;
     }
 
     const origin = this.getSpawnPoint(player);
-    const jitterX = (Math.random() - 0.5) * 60;
-    const jitterY = (Math.random() - 0.5) * 60;
-    const unit = new Unit(origin.x + jitterX, origin.y + jitterY, player, type);
-    const difficulty = BOT_DIFFICULTY[GameManager.selectedDifficulty] || BOT_DIFFICULTY.medium;
-    if (player.isBot) {
-      unit.damage = UNIT_STATS[type].damage * difficulty.damageMultiplier;
-      unit.maxHp = UNIT_STATS[type].hp * difficulty.hpMultiplier;
-      unit.hp = unit.maxHp;
-      unit.range = UNIT_STATS[type].range * difficulty.rangeMultiplier;
-    }
+    const jitterX = (Math.random() - 0.5) * 50;
+    const jitterY = (Math.random() - 0.5) * 50;
+    const unit = new Unit(origin.x + jitterX, origin.y + jitterY, player);
     units.push(unit);
     player.units.push(unit);
     player.totalUnitsCreated += 1;
     UIManager.updateSpawnButtons();
+    UIManager.updateStrengthDisplay();
     return unit;
   },
   spawnInitialArmies() {
     units = [];
     EconomyManager.players.forEach((player) => {
       player.units = [];
+      player.formationMode = FORMATION_MODES.DEFENSE;
     });
   },
 };
@@ -482,7 +354,6 @@ const UnitManager = {
   },
   draw(ctx, camera) {
     units.forEach((unit) => unit.draw(ctx, camera));
-    EffectsManager.draw(ctx, camera);
   },
   clearSelection() {
     units.forEach((unit) => {
@@ -523,23 +394,7 @@ const UnitManager = {
       }
     });
   },
-  moveSelectedTo(targetX, targetY) {
-    const selectedUnits = this.getSelectedUnits();
-    if (selectedUnits.length === 0) {
-      return;
-    }
-
-    const spacing = 24;
-    const columns = Math.max(1, Math.ceil(Math.sqrt(selectedUnits.length)));
-
-    selectedUnits.forEach((unit, index) => {
-      const col = index % columns;
-      const row = Math.floor(index / columns);
-      const offsetX = (col - (columns - 1) / 2) * spacing;
-      const offsetY = (row - (Math.ceil(selectedUnits.length / columns) - 1) / 2) * spacing;
-      unit.moveTo(targetX + offsetX, targetY + offsetY);
-    });
-  },
+  moveSelectedTo() {},
   removeUnit(unit) {
     const idx = units.indexOf(unit);
     if (idx >= 0) {
@@ -550,136 +405,89 @@ const UnitManager = {
       unit.owner.units.splice(ownerIdx, 1);
     }
     unit.owner.totalUnitsLost += 1;
-    EffectsManager.createDeathFade(unit);
+    UIManager.updateStrengthDisplay();
   },
 };
 
 const CombatManager = {
-  update(deltaSeconds) {
-    const now = performance.now();
-    units.forEach((unit) => {
-      const enemy = this.findNearestEnemyInRange(unit);
-      const objective = ObjectiveManager.findNearestHostileObjectiveInRange(unit);
-      const target = enemy || objective;
-      if (!target) {
-        return;
+  update() {
+    const toRemove = new Set();
+    for (let i = 0; i < units.length; i += 1) {
+      const unitA = units[i];
+      if (toRemove.has(unitA)) continue;
+      for (let j = i + 1; j < units.length; j += 1) {
+        const unitB = units[j];
+        if (toRemove.has(unitB) || unitA.team === unitB.team) continue;
+        const distance = Math.hypot(unitA.x - unitB.x, unitA.y - unitB.y);
+        if (distance > UNIT_COLLISION_DISTANCE) continue;
+        if (unitA.strength > unitB.strength) {
+          unitA.strength -= unitB.strength;
+          toRemove.add(unitB);
+          unitA.state = "attacking";
+        } else if (unitB.strength > unitA.strength) {
+          unitB.strength -= unitA.strength;
+          toRemove.add(unitA);
+          unitB.state = "attacking";
+        } else {
+          toRemove.add(unitA);
+          toRemove.add(unitB);
+        }
+        break;
       }
-      unit.moveTo(unit.x, unit.y);
-      if (now - unit.lastAttackAt < unit.cooldown) {
-        return;
-      }
-      unit.lastAttackAt = now;
-      target.hp -= unit.damage;
-      EffectsManager.createFlash(unit.x, unit.y);
-      EffectsManager.createHitSpark(target.x, target.y);
-      if (target.type === "objective") {
-        ObjectiveManager.damageObjective(target, unit.team);
-      } else if (target.hp <= 0) {
-        UnitManager.removeUnit(target);
-      }
-    });
-    EffectsManager.update(deltaSeconds);
-  },
-  findNearestEnemyInRange(unit) {
-    let nearest = null;
-    let nearestDistance = Infinity;
-    units.forEach((candidate) => {
-      if (candidate === unit || candidate.team === unit.team) {
-        return;
-      }
-      const distance = Math.hypot(candidate.x - unit.x, candidate.y - unit.y);
-      if (distance <= unit.range && distance < nearestDistance) {
-        nearestDistance = distance;
-        nearest = candidate;
-      }
-    });
-    return nearest;
-  },
-  findNearestEnemy(unit) {
-    let nearest = null;
-    let nearestDistance = Infinity;
-    units.forEach((candidate) => {
-      if (candidate.team === unit.team) {
-        return;
-      }
-      const distance = Math.hypot(candidate.x - unit.x, candidate.y - unit.y);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearest = candidate;
-      }
-    });
-    return nearest;
+    }
+    toRemove.forEach((unit) => UnitManager.removeUnit(unit));
   },
 };
 
 const AIManager = {
-  thinkAccumulatorMs: 0,
-  lastNapoleonSkillAt: 0,
+  spawnAccumulatorMs: 0,
+  formationAccumulatorMs: 0,
   update(deltaSeconds) {
     const difficulty = BOT_DIFFICULTY[GameManager.selectedDifficulty] || BOT_DIFFICULTY.medium;
-    this.thinkAccumulatorMs += deltaSeconds * 1000;
-    if (this.thinkAccumulatorMs < difficulty.thinkIntervalMs) {
-      return;
-    }
-    this.thinkAccumulatorMs = 0;
+    this.spawnAccumulatorMs += deltaSeconds * 1000;
+    this.formationAccumulatorMs += deltaSeconds * 1000;
 
     EconomyManager.botPlayers.forEach((bot) => {
-      const preferred = difficulty.preferredUnits || Object.keys(UNIT_STATS);
-      const unitTypes = [...preferred].sort((a, b) => UNIT_STATS[a].cost - UNIT_STATS[b].cost);
-      const cheapest = unitTypes[0];
-      if (Math.random() <= difficulty.spawnChance && EconomyManager.canAfford(bot, cheapest)) {
-        const affordable = unitTypes.filter((type) => EconomyManager.canAfford(bot, type));
-        const spawnType = affordable[Math.floor(Math.random() * affordable.length)] || cheapest;
-        SpawnManager.spawnUnit(bot, spawnType);
+      if (this.spawnAccumulatorMs >= difficulty.spawnIntervalMs && EconomyManager.canAfford(bot, UNIT_COST)) {
+        SpawnManager.spawnUnit(bot);
       }
 
-      const now = performance.now();
-      if (GameManager.selectedDifficulty === "hard" && now - this.lastNapoleonSkillAt >= difficulty.napoleonSkillCooldownMs) {
-        this.activateNapoleonSkill(bot);
-        this.lastNapoleonSkillAt = now;
+      if (difficulty.behavior === "passive") {
+        if (Math.random() < 0.03) bot.formationMode = Math.random() > 0.5 ? FORMATION_MODES.ATTACK : FORMATION_MODES.DEFENSE;
+      } else if (difficulty.behavior === "adaptive") {
+        bot.formationMode = this.getTeamStrength(bot.team) > this.getTeamStrength(EconomyManager.humanPlayer.team) ? FORMATION_MODES.ATTACK : FORMATION_MODES.DEFENSE;
+      } else {
+        const enemyTeam = bot.team === "blue" ? "red" : "blue";
+        bot.formationMode = this.getTeamStrength(bot.team) > this.getTeamStrength(enemyTeam) ? FORMATION_MODES.ATTACK : FORMATION_MODES.DEFENSE;
       }
 
-      this.moveInFormation(bot, difficulty);
-
-      bot.units.forEach((unit) => {
-        const target = CombatManager.findNearestEnemy(unit);
-        const objective = ObjectiveManager.findNearestHostileObjective(unit);
-        const focus = target || objective;
-        if (focus) {
-          unit.moveTo(focus.x, focus.y);
-        }
-      });
+      if (bot.teammateHuman) {
+        bot.formationMode = EconomyManager.humanPlayer.formationMode;
+      }
     });
-  },
-  moveInFormation(bot, difficulty) {
-    if (!bot.units.length) {
-      return;
+
+    if (this.spawnAccumulatorMs >= difficulty.spawnIntervalMs) this.spawnAccumulatorMs = 0;
+    if (this.formationAccumulatorMs >= 500) {
+      EconomyManager.players.forEach((player) => this.applyFormation(player));
+      this.formationAccumulatorMs = 0;
     }
-    const anchor = CombatManager.findNearestEnemy(bot.units[0]) || ObjectiveManager.findNearestHostileObjective(bot.units[0]);
-    if (!anchor) {
-      return;
-    }
-    const rowWidth = Math.max(2, difficulty.formationSize);
-    const spacing = 34;
-    bot.units.forEach((unit, index) => {
-      const col = index % rowWidth;
-      const row = Math.floor(index / rowWidth);
-      const offsetX = (col - (rowWidth - 1) / 2) * spacing;
-      const offsetY = row * spacing;
-      unit.moveTo(anchor.x + offsetX, anchor.y + offsetY);
-    });
   },
-  activateNapoleonSkill(bot) {
-    bot.units.forEach((unit) => {
-      if (unit.isBoosted) {
-        return;
+  getTeamStrength(team) {
+    return units.filter((u) => u.team === team).reduce((sum, u) => sum + u.strength, 0);
+  },
+  applyFormation(player) {
+    if (!player.units.length) return;
+    const center = player.units.reduce((acc, unit) => ({ x: acc.x + unit.x / player.units.length, y: acc.y + unit.y / player.units.length }), { x: 0, y: 0 });
+    const enemyUnits = units.filter((u) => u.team !== player.team);
+    player.units.forEach((unit, index) => {
+      if (player.formationMode === FORMATION_MODES.DEFENSE) {
+        const angle = (Math.PI * 2 * index) / Math.max(1, player.units.length);
+        unit.moveTo(center.x + Math.cos(angle) * 30, center.y + Math.sin(angle) * 30, "defending");
+      } else if (enemyUnits.length) {
+        const target = enemyUnits.reduce((best, enemy) => (Math.hypot(enemy.x - unit.x, enemy.y - unit.y) < Math.hypot(best.x - unit.x, best.y - unit.y) ? enemy : best), enemyUnits[0]);
+        unit.moveTo(target.x, target.y, "attacking");
       }
-      unit.isBoosted = true;
-      unit.damage *= 1.15;
-      unit.range *= 1.1;
-      unit.cooldown *= 0.88;
     });
-    UIManager.flashMessage(`${bot.name} used Napoleon tactics!`);
   },
 };
 
@@ -699,14 +507,21 @@ const MatchFlowManager = {
     if (this.remainingMs === 0) {
       this.resolveTimeout();
     }
+
+    const aliveByTeam = { blue: 0, red: 0 };
+    units.forEach((u) => { aliveByTeam[u.team] += 1; });
+    ["blue", "red"].forEach((team) => {
+      const teamPlayers = EconomyManager.players.filter((p) => p.team === team);
+      const noGold = teamPlayers.every((p) => p.gold < UNIT_COST);
+      if (aliveByTeam[team] === 0 && noGold) {
+        this.finish(team === "blue" ? "red" : "blue", `${team.toUpperCase()} ran out of units and gold.`);
+      }
+    });
   },
   resolveTimeout() {
-    const allRedLost = ObjectiveManager.objectives.every((objective) => objective.team !== "red");
-    if (allRedLost) {
-      this.finish("blue", "Attackers captured every red city.");
-      return;
-    }
-    this.finish("red", "Defenders held the line until time expired.");
+    const blueStrength = units.filter((u) => u.team === "blue").reduce((sum, u) => sum + u.strength, 0);
+    const redStrength = units.filter((u) => u.team === "red").reduce((sum, u) => sum + u.strength, 0);
+    this.finish(blueStrength >= redStrength ? "blue" : "red", "Time expired.");
   },
   finish(winnerTeam, reason) {
     if (this.ended) {
@@ -722,97 +537,65 @@ const MatchFlowManager = {
 const ObjectiveManager = {
   objectives: [],
   init(map) {
-    this.objectives = (map?.towns || []).map((town) => {
-      const isCapital = town.name.toLowerCase().includes("capital");
-      const config = isCapital ? OBJECTIVE_CONFIG.capital : OBJECTIVE_CONFIG.town;
-      return {
-        type: "objective",
-        kind: isCapital ? "capital" : "town",
-        name: town.name,
-        x: town.x,
-        y: town.y,
-        team: town.x <= map.width / 2 ? "blue" : "red",
-        maxHp: config.maxHp,
-        hp: config.maxHp,
-        radius: config.radius,
-      };
-    });
+    this.objectives = (map?.towns || []).map((town, idx) => ({
+      id: `${town.name}-${idx}`,
+      x: town.x,
+      y: town.y,
+      radius: 80,
+      owner: null,
+      capAwardedTo: new Set(),
+      name: town.name,
+    }));
   },
   update() {
-    if (MatchFlowManager.ended) {
-      return;
-    }
-    const winningTeam = this.getWinningTeam();
-    if (!winningTeam || isPaused || winningTeam === "red") {
-      return;
-    }
-
-    const allRedLost = this.objectives.every((objective) => objective.team !== "red");
-    if (allRedLost) {
-      MatchFlowManager.finish(winningTeam, "All enemy cities were captured.");
-    }
-  },
-  getWinningTeam() {
-    if (this.objectives.length === 0) {
-      return null;
-    }
-    const owner = this.objectives[0].team;
-    return this.objectives.every((objective) => objective.team === owner) ? owner : null;
-  },
-  findNearestHostileObjectiveInRange(unit) {
-    return this.findNearestHostileObjective(unit, unit.range);
-  },
-  findNearestHostileObjective(unit, maxDistance = Infinity) {
-    let nearest = null;
-    let nearestDistance = Infinity;
     this.objectives.forEach((objective) => {
-      if (objective.team === unit.team) {
-        return;
-      }
-      const distance = Math.hypot(objective.x - unit.x, objective.y - unit.y);
-      if (distance <= maxDistance && distance < nearestDistance) {
-        nearest = objective;
-        nearestDistance = distance;
+      const inRadius = units.filter((unit) => Math.hypot(unit.x - objective.x, unit.y - objective.y) <= objective.radius);
+      const blueCount = inRadius.filter((u) => u.team === "blue").length;
+      const redCount = inRadius.filter((u) => u.team === "red").length;
+      const newOwner = blueCount > redCount ? "blue" : redCount > blueCount ? "red" : objective.owner;
+      if (newOwner && newOwner !== objective.owner) {
+        objective.owner = newOwner;
+        const captureKey = `${newOwner}-${objective.id}`;
+        if (!objective.capAwardedTo.has(captureKey)) {
+          objective.capAwardedTo.add(captureKey);
+          EconomyManager.increaseTeamGoldCap(newOwner, GAMEPLAY_CONFIG.captureGoldCapBonus);
+        }
       }
     });
-    return nearest;
-  },
-  damageObjective(objective, attackerTeam) {
-    if (objective.hp > 0) {
-      return;
-    }
-    const previousTeam = objective.team;
-    objective.team = attackerTeam;
-    objective.hp = objective.maxHp;
-    if (previousTeam !== attackerTeam) {
-      EconomyManager.grantObjectiveReward(attackerTeam, objective.name);
-    }
   },
 };
 
 const UIManager = {
   flashTimeout: null,
   initGameplayUI() {
-    document.querySelectorAll(".spawn-btn").forEach((button) => {
-      button.textContent = `${button.dataset.unit} (${UNIT_STATS[button.dataset.unit].cost}g)`;
-      button.onclick = () => {
-        SpawnManager.spawnUnit(EconomyManager.humanPlayer, button.dataset.unit);
-      };
+    const spawnButton = document.getElementById("spawnInfantryBtn");
+    if (spawnButton) {
+      spawnButton.textContent = `Spawn Infantry (${UNIT_COST}g)`;
+      spawnButton.onclick = () => SpawnManager.spawnUnit(EconomyManager.humanPlayer);
+    }
+    document.getElementById("defenseModeBtn")?.addEventListener("click", () => {
+      EconomyManager.humanPlayer.formationMode = FORMATION_MODES.DEFENSE;
+      UIManager.flashMessage("Formation set to DEFENSE");
+    });
+    document.getElementById("attackModeBtn")?.addEventListener("click", () => {
+      EconomyManager.humanPlayer.formationMode = FORMATION_MODES.ATTACK;
+      UIManager.flashMessage("Formation set to ATTACK");
     });
     this.updateSpawnButtons();
     this.syncGoldDisplay();
     this.updateTimer(MatchFlowManager.remainingMs);
+    this.updateStrengthDisplay();
   },
   updateSpawnButtons() {
     const player = EconomyManager.humanPlayer;
     if (!player) {
       return;
     }
-    document.querySelectorAll(".spawn-btn").forEach((button) => {
-      const cost = UNIT_STATS[button.dataset.unit].cost;
-      const isFull = player.units.length >= GAMEPLAY_CONFIG.maxUnitsPerPlayer;
-      button.disabled = player.gold < cost || isFull || isPaused;
-    });
+    const spawnButton = document.getElementById("spawnInfantryBtn");
+    if (spawnButton) {
+      const isFull = player.units.length >= GAMEPLAY_CONFIG.maxUnitsPerPlayer || units.length >= GAMEPLAY_CONFIG.maxTotalUnits;
+      spawnButton.disabled = player.gold < UNIT_COST || isFull || isPaused;
+    }
     const unitCountLabel = document.getElementById("unitCountValue");
     if (unitCountLabel) {
       unitCountLabel.textContent = `${player.units.length}/${GAMEPLAY_CONFIG.maxUnitsPerPlayer}`;
@@ -822,6 +605,13 @@ const UIManager = {
     if (EconomyManager.humanPlayer) {
       document.getElementById("gameplayGoldValue").textContent = String(EconomyManager.humanPlayer.gold);
     }
+  },
+  updateStrengthDisplay() {
+    const team = EconomyManager.humanPlayer?.team;
+    if (!team) return;
+    const total = units.filter((u) => u.team === team).reduce((sum, unit) => sum + unit.strength, 0);
+    const el = document.getElementById("teamStrengthValue");
+    if (el) el.textContent = String(Math.round(total));
   },
   flashMessage(message, mode = "info") {
     const messageBox = document.getElementById("gameMessage");
@@ -877,14 +667,9 @@ const GameplayMapRenderer = {
   animationFrame: null,
   lastFrameTime: 0,
   speed: 520,
-  edgeScrollZone: 20,
   pointerPosition: { x: 0, y: 0 },
-  isPointerInsideCanvas: false,
   isDragPanning: false,
   lastDragPosition: null,
-  isSelecting: false,
-  selectionStart: null,
-  selectionCurrent: null,
   onPointerMove: null,
   onPointerDown: null,
   onPointerUp: null,
@@ -892,9 +677,9 @@ const GameplayMapRenderer = {
   onPointerLeave: null,
   onContextMenu: null,
   onWheel: null,
-  onKeyDown: null,
-  onKeyUp: null,
-  pressedKeys: new Set(),
+  onTouchStart: null,
+  onTouchMove: null,
+  onTouchEnd: null,
   init(selectedMap) {
     this.detachPointerControls();
 
@@ -919,7 +704,6 @@ const GameplayMapRenderer = {
     ObjectiveManager.init(this.map);
 
     this.attachPointerControls();
-    this.attachKeyboardControls();
 
     this.start();
   },
@@ -965,22 +749,6 @@ const GameplayMapRenderer = {
       return;
     }
 
-    const moveDistance = this.speed * deltaSeconds;
-    const keyboardMoveDistance = moveDistance * 0.9;
-
-    if (this.pressedKeys.has("w") || this.pressedKeys.has("arrowup")) this.cameraY -= keyboardMoveDistance;
-    if (this.pressedKeys.has("s") || this.pressedKeys.has("arrowdown")) this.cameraY += keyboardMoveDistance;
-    if (this.pressedKeys.has("a") || this.pressedKeys.has("arrowleft")) this.cameraX -= keyboardMoveDistance;
-    if (this.pressedKeys.has("d") || this.pressedKeys.has("arrowright")) this.cameraX += keyboardMoveDistance;
-
-    if (this.isPointerInsideCanvas && !this.isDragPanning) {
-      const { x, y } = this.pointerPosition;
-      if (x <= this.edgeScrollZone) this.cameraX -= moveDistance;
-      if (x >= this.canvas.width - this.edgeScrollZone) this.cameraX += moveDistance;
-      if (y <= this.edgeScrollZone) this.cameraY -= moveDistance;
-      if (y >= this.canvas.height - this.edgeScrollZone) this.cameraY += moveDistance;
-    }
-
     this.clampCamera();
   },
   getCanvasPointerPosition(event) {
@@ -1012,56 +780,29 @@ const GameplayMapRenderer = {
         this.clampCamera();
       }
 
-      if (this.isSelecting) {
-        this.selectionCurrent = this.screenToWorld(position.x, position.y);
-      }
     };
 
     this.onPointerDown = (event) => {
       const position = this.getCanvasPointerPosition(event);
       this.pointerPosition = position;
 
-      if (event.button === 1) {
+      if (event.button === 0) {
         this.isDragPanning = true;
         this.lastDragPosition = position;
         event.preventDefault();
         return;
       }
 
-      if (event.button === 0) {
-        this.isSelecting = true;
-        this.selectionStart = this.screenToWorld(position.x, position.y);
-        this.selectionCurrent = this.selectionStart;
-      }
+
     };
 
     this.onPointerUp = (event) => {
-      if (event.button === 1 && this.isDragPanning) {
+      if (event.button === 0 && this.isDragPanning) {
         this.isDragPanning = false;
         this.lastDragPosition = null;
         return;
       }
 
-      if (event.button === 0 && this.isSelecting && this.selectionStart && this.selectionCurrent) {
-        const keepExisting = event.shiftKey;
-        const width = Math.abs(this.selectionCurrent.x - this.selectionStart.x);
-        const height = Math.abs(this.selectionCurrent.y - this.selectionStart.y);
-
-        if (width < 8 && height < 8) {
-          UnitManager.selectUnitAt(this.selectionStart.x, this.selectionStart.y, keepExisting);
-        } else {
-          UnitManager.selectInRectangle({
-            minX: Math.min(this.selectionStart.x, this.selectionCurrent.x),
-            maxX: Math.max(this.selectionStart.x, this.selectionCurrent.x),
-            minY: Math.min(this.selectionStart.y, this.selectionCurrent.y),
-            maxY: Math.max(this.selectionStart.y, this.selectionCurrent.y),
-          }, keepExisting);
-        }
-
-        this.isSelecting = false;
-        this.selectionStart = null;
-        this.selectionCurrent = null;
-      }
     };
 
     this.onPointerEnter = (event) => {
@@ -1073,15 +814,9 @@ const GameplayMapRenderer = {
       this.isPointerInsideCanvas = false;
       this.isDragPanning = false;
       this.lastDragPosition = null;
-      this.isSelecting = false;
-      this.selectionStart = null;
-      this.selectionCurrent = null;
     };
 
     this.onContextMenu = (event) => {
-      const position = this.getCanvasPointerPosition(event);
-      const worldPosition = this.screenToWorld(position.x, position.y);
-      UnitManager.moveSelectedTo(worldPosition.x, worldPosition.y);
       event.preventDefault();
     };
 
@@ -1105,20 +840,48 @@ const GameplayMapRenderer = {
     this.canvas.addEventListener("mouseleave", this.onPointerLeave);
     this.canvas.addEventListener("contextmenu", this.onContextMenu);
     this.canvas.addEventListener("wheel", this.onWheel, { passive: false });
-  },
-  attachKeyboardControls() {
-    this.onKeyDown = (event) => {
-      if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(event.key.toLowerCase())) {
-        event.preventDefault();
-      }
-      this.pressedKeys.add(event.key.toLowerCase());
-    };
-    this.onKeyUp = (event) => {
-      this.pressedKeys.delete(event.key.toLowerCase());
-    };
 
-    window.addEventListener("keydown", this.onKeyDown);
-    window.addEventListener("keyup", this.onKeyUp);
+    let pinchDistance = null;
+    this.onTouchStart = (event) => {
+      if (event.touches.length === 1) {
+        const touch = event.touches[0];
+        const position = this.getCanvasPointerPosition(touch);
+        this.isDragPanning = true;
+        this.lastDragPosition = position;
+      } else if (event.touches.length === 2) {
+        const [a, b] = event.touches;
+        pinchDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      }
+      event.preventDefault();
+    };
+    this.onTouchMove = (event) => {
+      if (event.touches.length === 1 && this.isDragPanning && this.lastDragPosition) {
+        const position = this.getCanvasPointerPosition(event.touches[0]);
+        const deltaX = (position.x - this.lastDragPosition.x) / this.zoomLevel;
+        const deltaY = (position.y - this.lastDragPosition.y) / this.zoomLevel;
+        this.cameraX -= deltaX;
+        this.cameraY -= deltaY;
+        this.lastDragPosition = position;
+        this.clampCamera();
+      } else if (event.touches.length === 2 && pinchDistance) {
+        // Pinch placeholder logic
+        const [a, b] = event.touches;
+        const currentDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        const factor = currentDistance > pinchDistance ? 1.01 : 0.99;
+        this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoomLevel * factor));
+        pinchDistance = currentDistance;
+        this.clampCamera();
+      }
+      event.preventDefault();
+    };
+    this.onTouchEnd = () => {
+      this.isDragPanning = false;
+      this.lastDragPosition = null;
+      pinchDistance = null;
+    };
+    this.canvas.addEventListener("touchstart", this.onTouchStart, { passive: false });
+    this.canvas.addEventListener("touchmove", this.onTouchMove, { passive: false });
+    this.canvas.addEventListener("touchend", this.onTouchEnd);
   },
   detachPointerControls() {
     if (!this.canvas) {
@@ -1132,11 +895,9 @@ const GameplayMapRenderer = {
     if (this.onPointerLeave) this.canvas.removeEventListener("mouseleave", this.onPointerLeave);
     if (this.onContextMenu) this.canvas.removeEventListener("contextmenu", this.onContextMenu);
     if (this.onWheel) this.canvas.removeEventListener("wheel", this.onWheel);
-  },
-  detachKeyboardControls() {
-    this.pressedKeys.clear();
-    if (this.onKeyDown) window.removeEventListener("keydown", this.onKeyDown);
-    if (this.onKeyUp) window.removeEventListener("keyup", this.onKeyUp);
+    if (this.onTouchStart) this.canvas.removeEventListener("touchstart", this.onTouchStart);
+    if (this.onTouchMove) this.canvas.removeEventListener("touchmove", this.onTouchMove);
+    if (this.onTouchEnd) this.canvas.removeEventListener("touchend", this.onTouchEnd);
   },
   screenToWorld(screenX, screenY) {
     return {
@@ -1165,25 +926,11 @@ const GameplayMapRenderer = {
       zoom: this.zoomLevel,
     });
 
-    if (this.isSelecting && this.selectionStart && this.selectionCurrent) {
-      const startX = (this.selectionStart.x - this.cameraX) * this.zoomLevel;
-      const startY = (this.selectionStart.y - this.cameraY) * this.zoomLevel;
-      const currentX = (this.selectionCurrent.x - this.cameraX) * this.zoomLevel;
-      const currentY = (this.selectionCurrent.y - this.cameraY) * this.zoomLevel;
-      ctx.save();
-      ctx.fillStyle = "rgba(255, 224, 102, 0.2)";
-      ctx.strokeStyle = "rgba(255, 224, 102, 0.85)";
-      ctx.lineWidth = 1.5;
-      ctx.fillRect(startX, startY, currentX - startX, currentY - startY);
-      ctx.strokeRect(startX, startY, currentX - startX, currentY - startY);
-      ctx.restore();
-    }
   },
   teardown() {
     cancelAnimationFrame(this.animationFrame);
     this.animationFrame = null;
     this.detachPointerControls();
-    this.detachKeyboardControls();
   },
 };
 
@@ -1421,16 +1168,13 @@ function drawMapSceneWithCamera(ctx, map, camera, withLabels) {
     const drawX = toDrawX(town.x);
     const drawY = toDrawY(town.y);
     const objective = ObjectiveManager.objectives.find((point) => point.name === town.name);
-    const objectiveColor = objective?.team === "blue" ? "#1f57d6" : "#d83131";
+    const objectiveColor = objective?.owner === "blue" ? "#1f57d6" : objective?.owner === "red" ? "#d83131" : "#b69458";
     drawStar(ctx, drawX, drawY, 9 * camera.zoom, objectiveColor);
     if (objective) {
-      const hpRatio = Math.max(0, objective.hp / objective.maxHp);
-      const barWidth = 28 * camera.zoom;
-      const barHeight = 4 * camera.zoom;
-      ctx.fillStyle = "#6c1c1c";
-      ctx.fillRect(drawX - barWidth / 2, drawY + 12 * camera.zoom, barWidth, barHeight);
-      ctx.fillStyle = "#49c549";
-      ctx.fillRect(drawX - barWidth / 2, drawY + 12 * camera.zoom, barWidth * hpRatio, barHeight);
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.beginPath();
+      ctx.arc(drawX, drawY, objective.radius * 0.3 * camera.zoom, 0, Math.PI * 2);
+      ctx.stroke();
     }
     if (withLabels) {
       ctx.fillStyle = "#1b2a1a";
