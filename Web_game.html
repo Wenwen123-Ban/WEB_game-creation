@@ -30,14 +30,17 @@
             <button class="menu-btn setup-choice" data-type="mode" data-value="LAN" type="button">LAN</button>
           </div>
 
-          <div class="section-chip">PLAYER NUMBERS</div>
-          <div class="choice-grid two-col">
+          <div id="playerCountSection" class="setup-section">
+            <div class="section-chip">PLAYER NUMBERS</div>
+            <div class="choice-grid two-col">
             <button class="menu-btn setup-choice" data-type="playerCount" data-value="2" type="button">1 V 1</button>
             <button class="menu-btn setup-choice" data-type="playerCount" data-value="4" type="button">2 V 2</button>
           </div>
+          </div>
 
-          <div class="section-chip">GAME TIME</div>
-          <div class="choice-grid two-col">
+          <div id="gameTimeSection" class="setup-section">
+            <div class="section-chip">GAME TIME</div>
+            <div class="choice-grid two-col">
             <button class="menu-btn setup-choice" data-type="gameTime" data-value="15" type="button">15 MINUTES</button>
             <button class="menu-btn setup-choice" data-type="gameTime" data-value="10" type="button">10 MINUTES</button>
             <button class="menu-btn setup-choice" data-type="gameTime" data-value="30" type="button">30 MINUTES</button>
@@ -45,12 +48,21 @@
             <button class="menu-btn setup-choice" data-type="gameTime" data-value="5" type="button">5 MINUTES</button>
             <button id="customTimeBtn" class="menu-btn setup-choice" data-type="gameTime" data-value="Custom" type="button">CUSTOM TIME</button>
           </div>
+          </div>
 
-          <div class="section-chip">DIFFICULTY</div>
-          <div class="choice-grid two-col">
+          <div id="difficultySection" class="setup-section">
+            <div class="section-chip">DIFFICULTY</div>
+            <div class="choice-grid two-col">
             <button class="menu-btn setup-choice" data-type="difficulty" data-value="easy" type="button">EASY</button>
             <button class="menu-btn setup-choice" data-type="difficulty" data-value="medium" type="button">MEDIUM</button>
             <button class="menu-btn setup-choice" data-type="difficulty" data-value="hard" type="button">HARD</button>
+          </div>
+          </div>
+
+          <div id="lanLobbySection" class="setup-section hidden">
+            <div class="section-chip">LAN SERVER LIST</div>
+            <div id="lanServerList" class="lan-server-list"></div>
+            <button id="createLobbyBtn" class="menu-btn action-btn" type="button">CREATE LOBBY</button>
           </div>
 
           <button id="confirmSetupBtn" class="menu-btn action-btn" type="button" disabled>CONFIRM</button>
@@ -72,6 +84,7 @@
       <div class="setup-layout">
         <div class="panel left-panel team-panel">
           <div id="teamSectionTitle" class="section-chip">TEAM SELECTION</div>
+          <p id="lobbyMeta" class="lobby-meta hidden"></p>
 
           <div class="team-block" data-team="blue">
             <div class="team-header-row">

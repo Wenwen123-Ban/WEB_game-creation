@@ -226,6 +226,34 @@ body {
   font-size: 2rem;
 }
 
+
+.setup-section {
+  display: grid;
+  gap: 8px;
+}
+
+.lan-server-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.lan-lobby-card {
+  text-align: left;
+  display: grid;
+  gap: 4px;
+}
+
+.lan-lobby-card span {
+  font-size: 0.9rem;
+}
+
+.lobby-meta {
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
 .team-panel {
   gap: 18px;
 }
