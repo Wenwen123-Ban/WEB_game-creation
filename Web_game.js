@@ -40,6 +40,8 @@ const BOT_DIFFICULTY = {
 let currentMode = "vsbot";
 let lanLobbies = [];
 let activeLobbyId = null;
+let lobbiesPollIntervalId = null;
+let lobbyDetailsPollIntervalId = null;
 
 function showScreen(screenId) {
   document.querySelectorAll(".screen").forEach((screen) => {
@@ -1026,21 +1028,20 @@ function setAppState(stateId) {
   updateActionButtons();
 }
 
-function goBack() {
+async function goBack() {
   if (GAME_STATE === "lobby") {
     if (currentMode === "lan") {
       const lobby = getActiveLobby();
-      const username = currentPlayer?.username;
-      if (lobby && username) {
-        if (lobby.hostName === username) {
-          lanLobbies = lanLobbies.filter((entry) => entry.id !== lobby.id);
-        } else {
-          lobby.players = lobby.players.filter((player) => player.name !== username);
+      if (lobby) {
+        try {
+          await apiPost("/api/leave-lobby", { id: lobby.id });
+        } catch (error) {
+          console.error("Failed to leave lobby", error);
         }
       }
       activeLobbyId = null;
       setSetupControlsDisabled(false);
-      renderLanServerList();
+      await fetchLobbies();
     }
     setAppState("mapSelection");
     return;
@@ -1249,12 +1250,84 @@ function getActiveLobby() {
   return lanLobbies.find((lobby) => lobby.id === activeLobbyId) || null;
 }
 
+async function apiGet(path) {
+  const response = await fetch(path);
+  const data = await parseApiResponse(response);
+  if (!response.ok || data.success === false) {
+    throw new Error(data.error || "Request failed.");
+  }
+  return data;
+}
+
+function syncLobbyFromServer(lobby) {
+  if (!lobby) {
+    return;
+  }
+
+  const existingIndex = lanLobbies.findIndex((entry) => entry.id === lobby.id);
+  if (existingIndex >= 0) {
+    lanLobbies[existingIndex] = lobby;
+  } else {
+    lanLobbies.push(lobby);
+  }
+}
+
+function stopLobbyPolling() {
+  if (lobbiesPollIntervalId) {
+    clearInterval(lobbiesPollIntervalId);
+    lobbiesPollIntervalId = null;
+  }
+  if (lobbyDetailsPollIntervalId) {
+    clearInterval(lobbyDetailsPollIntervalId);
+    lobbyDetailsPollIntervalId = null;
+  }
+}
+
+function startLobbyPolling() {
+  stopLobbyPolling();
+  lobbiesPollIntervalId = setInterval(() => {
+    fetchLobbies().catch((error) => console.error("Failed to poll lobbies", error));
+  }, 3000);
+
+  lobbyDetailsPollIntervalId = setInterval(() => {
+    if (activeLobbyId) {
+      fetchLobbyDetails(activeLobbyId).catch((error) => console.error("Failed to poll lobby details", error));
+    }
+  }, 2000);
+}
+
+async function fetchLobbies() {
+  const data = await apiGet("/api/lobbies");
+  lanLobbies = data.lobbies || [];
+  renderLanServerList();
+  if (activeLobbyId && !lanLobbies.some((lobby) => lobby.id === activeLobbyId)) {
+    activeLobbyId = null;
+    if (currentMode === "lan" && GAME_STATE === "lobby") {
+      setAppState("mapSelection");
+    }
+  }
+}
+
+async function fetchLobbyDetails(lobbyId) {
+  const data = await apiGet(`/api/get-lobby/${encodeURIComponent(lobbyId)}`);
+  const lobby = data.lobby;
+  if (!lobby) {
+    return;
+  }
+  lobby.teams = data.teams || {};
+  syncLobbyFromServer(lobby);
+  if (activeLobbyId === lobby.id && GAME_STATE === "lobby") {
+    renderTeamSlots();
+    updateActionButtons();
+  }
+}
+
 function getLobbyMaxPlayers(lobbyMode) {
   return lobbyMode === "2v2" ? 4 : 2;
 }
 
 function isLobbyFull(lobby) {
-  return lobby.players.length >= lobby.maxPlayers;
+  return lobby.players.length >= lobby.max_players;
 }
 
 function renderLanServerList() {
@@ -1277,7 +1350,7 @@ function renderLanServerList() {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "menu-btn lan-lobby-card";
-    card.innerHTML = `<strong>${lobby.hostName} at ${lobby.mapName}</strong><span>${lobby.players.length}/${lobby.maxPlayers} | ${lobby.gameTime} Minutes | ${lobby.status}</span>`;
+    card.innerHTML = `<strong>${lobby.host} at ${(getMapsOrLogError()?.find((map) => map.id === lobby.map)?.name || lobby.map)}</strong><span>${lobby.players.length}/${lobby.max_players} | ${lobby.game_time} Minutes | ${lobby.status}</span>`;
     card.disabled = isLobbyFull(lobby);
     card.addEventListener("click", () => joinLanLobby(lobby.id));
     list.appendChild(card);
@@ -1291,6 +1364,13 @@ function updateModeUI() {
   document.getElementById("playerCountSection")?.classList.toggle("hidden", isLan);
   document.getElementById("lanLobbySection")?.classList.toggle("hidden", !isLan);
   document.getElementById("confirmSetupBtn")?.classList.toggle("hidden", isLan);
+
+  if (isLan) {
+    startLobbyPolling();
+    fetchLobbies().catch((error) => console.error("Failed to fetch lobbies", error));
+  } else {
+    stopLobbyPolling();
+  }
 
   renderLanServerList();
   updateActionButtons();
@@ -1308,7 +1388,7 @@ function setSetupControlsDisabled(disabled) {
   }
 }
 
-function createLanLobby() {
+async function createLanLobby() {
   if (!currentPlayer) {
     showWarningPopup("Please login first.");
     return;
@@ -1319,70 +1399,55 @@ function createLanLobby() {
     return;
   }
 
-  const lobbyMode = GameManager.playerCount === 4 ? "2v2" : "1v1";
-  const mapName = getSelectedMap()?.name || "Unknown Map";
-  const hostName = currentPlayer.username;
-  const duplicate = lanLobbies.some((lobby) => lobby.status === "waiting" && lobby.players.some((player) => player.name === hostName));
-  if (duplicate) {
-    showWarningPopup("You are already in an active LAN lobby.");
-    return;
+  try {
+    const mode = GameManager.playerCount === 4 ? "2v2" : "1v1";
+    const data = await apiPost("/api/create-lobby", {
+      map: GameManager.selectedMapId,
+      mode,
+      game_time: GameManager.gameTime,
+    });
+
+    const lobby = data.lobby;
+    activeLobbyId = lobby.id;
+    lobby.teams = { [currentPlayer.username]: null };
+    syncLobbyFromServer(lobby);
+    GameManager.selectedMode = "LAN";
+    GameManager.playerCount = lobby.max_players;
+    GameManager.gameTime = lobby.game_time;
+    GameManager.teams = { blue: [], red: [] };
+    GameManager.selectedTeam = null;
+    GameManager.selectedMapId = lobby.map;
+    setSetupControlsDisabled(true);
+    await fetchLobbies();
+    await fetchLobbyDetails(lobby.id);
+    setAppState("teamSelection");
+  } catch (error) {
+    showWarningPopup(error.message || "Failed to create lobby.");
   }
-
-  const lobby = {
-    id: `lan-${Date.now()}`,
-    hostName,
-    mapName,
-    mapId: GameManager.selectedMapId,
-    mode: lobbyMode,
-    gameTime: GameManager.gameTime,
-    players: [{ name: hostName, team: null }],
-    maxPlayers: getLobbyMaxPlayers(lobbyMode),
-    status: "waiting",
-  };
-
-  lanLobbies.push(lobby);
-  activeLobbyId = lobby.id;
-  GameManager.selectedMode = "LAN";
-  GameManager.playerCount = lobby.maxPlayers;
-  GameManager.teams = { blue: [], red: [] };
-  GameManager.selectedTeam = null;
-  GameManager.selectedMapId = lobby.mapId;
-  setSetupControlsDisabled(true);
-  renderLanServerList();
-  setAppState("teamSelection");
 }
 
-function joinLanLobby(lobbyId) {
+async function joinLanLobby(lobbyId) {
   if (!currentPlayer) {
     showWarningPopup("Please login first.");
     return;
   }
 
-  const lobby = lanLobbies.find((entry) => entry.id === lobbyId);
-  if (!lobby || lobby.status !== "waiting") {
-    showWarningPopup("Lobby is unavailable.");
-    return;
+  try {
+    const data = await apiPost("/api/join-lobby", { id: lobbyId });
+    const lobby = data.lobby;
+    activeLobbyId = lobby.id;
+    GameManager.selectedMode = "LAN";
+    GameManager.playerCount = lobby.max_players;
+    GameManager.gameTime = lobby.game_time;
+    GameManager.selectedMapId = lobby.map;
+    GameManager.selectedTeam = null;
+    setSetupControlsDisabled(true);
+    await fetchLobbies();
+    await fetchLobbyDetails(lobby.id);
+    setAppState("teamSelection");
+  } catch (error) {
+    showWarningPopup(error.message || "Lobby is unavailable.");
   }
-
-  if (isLobbyFull(lobby)) {
-    showWarningPopup("Lobby is full.");
-    return;
-  }
-
-  if (lobby.players.some((player) => player.name === currentPlayer.username)) {
-    showWarningPopup("Duplicate player names are not allowed in the same lobby.");
-    return;
-  }
-
-  lobby.players.push({ name: currentPlayer.username, team: null });
-  activeLobbyId = lobby.id;
-  GameManager.selectedMode = "LAN";
-  GameManager.playerCount = lobby.maxPlayers;
-  GameManager.gameTime = lobby.gameTime;
-  GameManager.selectedMapId = lobby.mapId;
-  GameManager.selectedTeam = null;
-  setSetupControlsDisabled(true);
-  setAppState("teamSelection");
 }
 
 function resetTeams() {
@@ -1422,7 +1487,7 @@ function autoAssignBotsForVsBot() {
   }
 }
 
-function joinTeam(team) {
+async function joinTeam(team) {
   if (!currentPlayer) {
     showWarningPopup("Please login first.");
     return;
@@ -1435,23 +1500,15 @@ function joinTeam(team) {
       return;
     }
 
-    const slotsPerTeam = lobby.mode === "2v2" ? 2 : 1;
-    const teamCount = lobby.players.filter((player) => player.team === team).length;
-    if (teamCount >= slotsPerTeam) {
-      showWarningPopup("Team is full for now.");
-      return;
+    try {
+      await apiPost("/api/set-lobby-team", { id: lobby.id, team });
+      GameManager.selectedTeam = team;
+      await fetchLobbyDetails(lobby.id);
+      renderTeamSlots();
+      updateActionButtons();
+    } catch (error) {
+      showWarningPopup(error.message || "Failed to join team.");
     }
-
-    const playerRow = lobby.players.find((player) => player.name === currentPlayer.username);
-    if (!playerRow) {
-      showWarningPopup("You are not a member of this lobby.");
-      return;
-    }
-
-    playerRow.team = team;
-    GameManager.selectedTeam = team;
-    renderTeamSlots();
-    updateActionButtons();
     return;
   }
 
@@ -1494,7 +1551,8 @@ function teamReady() {
     if (!lobby) {
       return false;
     }
-    return lobby.players.length === lobby.maxPlayers && lobby.players.every((player) => player.team === "blue" || player.team === "red");
+    const teams = lobby.teams || {};
+    return lobby.players.length === lobby.max_players && lobby.players.every((playerName) => teams[playerName] === "blue" || teams[playerName] === "red");
   }
 
   if (GameManager.selectedMode === "VS BOT") {
@@ -1515,17 +1573,19 @@ function renderTeamSlots() {
     }
 
     const slots = lobby.mode === "2v2" ? 2 : 1;
-    const title = lobby.hostName === currentPlayer?.username ? "LOBBY WAITING ROOM" : "TEAM SELECTION";
+    const title = lobby.host === currentPlayer?.username ? "LOBBY WAITING ROOM" : "TEAM SELECTION";
     document.getElementById("teamSectionTitle").textContent = title;
     if (lobbyMeta) {
       lobbyMeta.classList.remove("hidden");
-      lobbyMeta.textContent = `${lobby.hostName} at ${lobby.mapName} | ${lobby.players.length}/${lobby.maxPlayers} | ${lobby.gameTime} Minutes | ${lobby.status}`;
+      lobbyMeta.textContent = `${lobby.host} at ${(getMapsOrLogError()?.find((map) => map.id === lobby.map)?.name || lobby.map)} | ${lobby.players.length}/${lobby.max_players} | ${lobby.game_time} Minutes | ${lobby.status}`;
     }
 
     const teams = { blue: [], red: [] };
-    lobby.players.forEach((player) => {
-      if (player.team === "blue" || player.team === "red") {
-        teams[player.team].push(player.name);
+    const assignedTeams = lobby.teams || {};
+    lobby.players.forEach((playerName) => {
+      const assignedTeam = assignedTeams[playerName];
+      if (assignedTeam === "blue" || assignedTeam === "red") {
+        teams[assignedTeam].push(playerName);
       }
     });
     GameManager.teams = {
@@ -1548,7 +1608,7 @@ function renderTeamSlots() {
       btn.classList.toggle("active", GameManager.selectedTeam === team);
     });
 
-    const isHost = lobby.hostName === currentPlayer?.username;
+    const isHost = lobby.host === currentPlayer?.username;
     const startBtn = document.getElementById("startMatchBtn");
     startBtn.classList.toggle("hidden", !isHost);
     startBtn.disabled = !teamReady() || lobby.status !== "waiting";
@@ -1625,7 +1685,7 @@ function updateActionButtons() {
       createLobbyBtn.disabled = !canCreateLobby;
     }
     const lobby = getActiveLobby();
-    const isHost = lobby?.hostName === currentPlayer?.username;
+    const isHost = lobby?.host === currentPlayer?.username;
     if (startButton) {
       startButton.classList.toggle("hidden", !isHost && GAME_STATE === "lobby");
       startButton.disabled = !(isHost && teamReady() && lobby?.status === "waiting");
@@ -1693,6 +1753,7 @@ async function logoutPlayer() {
   try {
     await apiPost("/logout", {});
     currentPlayer = null;
+    stopLobbyPolling();
     resetTeams();
     updateDashboard();
     setAppState("mainMenu");
@@ -1703,7 +1764,7 @@ async function logoutPlayer() {
 
 async function refreshAccountState() {
   try {
-    const response = await fetch("/get_current_user");
+    const response = await fetch("/api/get_current_user");
     const data = await parseApiResponse(response);
 
     currentPlayer = data.success ? data.user : null;
@@ -1711,6 +1772,43 @@ async function refreshAccountState() {
     renderTeamSlots();
   } catch (error) {
     console.error("Failed to refresh account", error);
+  }
+}
+
+
+async function restoreActiveMatchIfNeeded() {
+  if (!currentPlayer) {
+    return;
+  }
+
+  try {
+    const data = await apiGet("/api/check-active-match");
+    const match = data.match;
+    if (!match) {
+      return;
+    }
+    activeLobbyId = match.id;
+    match.teams = data.teams || {};
+    syncLobbyFromServer(match);
+    currentMode = "lan";
+    GameManager.selectedMode = "LAN";
+    GameManager.playerCount = match.max_players;
+    GameManager.gameTime = match.game_time;
+    GameManager.selectedMapId = match.map;
+    GameManager.selectedTeam = (match.teams || {})[currentPlayer.username] || null;
+
+    if (match.status === "waiting") {
+      setAppState("teamSelection");
+      await fetchLobbyDetails(match.id);
+    } else if (match.status === "in_progress") {
+      enterGame();
+      GameplayMapRenderer.init(getSelectedMap());
+      MatchFlowManager.init();
+      UIManager.initGameplayUI();
+      updateDashboard();
+    }
+  } catch (error) {
+    console.error("Failed to restore active match", error);
   }
 }
 
@@ -2042,15 +2140,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (currentMode === "lan") {
       const lobby = getActiveLobby();
-      if (!lobby || lobby.hostName !== currentPlayer?.username) {
+      if (!lobby || lobby.host !== currentPlayer?.username) {
         showWarningPopup("Only the host can start this match.");
         return;
       }
-      if (lobby.players.length < lobby.maxPlayers) {
+      if (lobby.players.length < lobby.max_players) {
         showWarningPopup("All player slots must be filled before starting.");
         return;
       }
-      lobby.status = "started";
+      await apiPost("/api/start-match", { id: lobby.id });
+      await fetchLobbyDetails(lobby.id);
       renderLanServerList();
       renderTeamSlots();
       enterGame();
@@ -2078,11 +2177,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
 window.addEventListener("load", async () => {
   try {
-    const response = await fetch("/check_session");
-    const data = await parseApiResponse(response);
-    if (data.logged_in) {
-      await refreshAccountState();
-    }
+    await refreshAccountState();
+    await fetchLobbies();
+    startLobbyPolling();
+    await restoreActiveMatchIfNeeded();
   } catch (error) {
     console.error("Failed to restore session", error);
   }
