@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, send_from_directory, session
 import os
 import json
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -119,6 +120,66 @@ def save_matches(data):
         json.dump(data, matches_file, indent=2)
 
 
+def utc_now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def cleanup_expired_lobbies(matches_data):
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    retained_matches = []
+    for match in matches_data["matches"]:
+        if match.get("status") != "waiting":
+            retained_matches.append(match)
+            continue
+
+        created_at_raw = match.get("created_at")
+        if not isinstance(created_at_raw, str):
+            retained_matches.append(match)
+            continue
+
+        try:
+            created_at = datetime.fromisoformat(created_at_raw)
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+        except ValueError:
+            retained_matches.append(match)
+            continue
+
+        players = match.get("players", [])
+        if not isinstance(players, list):
+            players = []
+        if created_at < cutoff and len(players) <= 1:
+            continue
+
+        retained_matches.append(match)
+
+    matches_data["matches"] = retained_matches
+    return matches_data
+
+
+def load_matches_with_cleanup(save_if_changed=False):
+    matches_data = load_matches()
+    original_count = len(matches_data["matches"])
+    cleanup_expired_lobbies(matches_data)
+    if save_if_changed and len(matches_data["matches"]) != original_count:
+        save_matches(matches_data)
+    return matches_data
+
+
+def normalize_match_response(match):
+    return {
+        "id": match.get("id"),
+        "host": match.get("host"),
+        "map": match.get("map"),
+        "mode": match.get("mode"),
+        "max_players": match.get("max_players", 2),
+        "players": match.get("players", []),
+        "status": match.get("status"),
+        "created_at": match.get("created_at"),
+        "game_time": match.get("game_time", 15),
+    }
+
+
 def append_transaction(entry_type, from_user, to_user, amount):
     ledger = load_transactions()
     ledger["transactions"].append(
@@ -233,6 +294,7 @@ def create_account():
 
 
 @app.route("/get_current_user", methods=["GET"])
+@app.route("/api/get_current_user", methods=["GET"])
 def get_current_user():
     username = session.get("username")
     if not username:
@@ -375,6 +437,201 @@ def create_match():
     save_matches(matches_data)
 
     return jsonify({"success": True, "match": new_match}), 201
+
+
+@app.route("/api/create-lobby", methods=["POST"])
+def create_lobby():
+    payload = request.get_json(silent=True) or {}
+    username = session.get("username")
+
+    if not username:
+        return jsonify({"success": False, "error": "You must be logged in."}), 401
+
+    map_id = (payload.get("map") or "").strip()
+    mode = (payload.get("mode") or "1v1").strip() or "1v1"
+    max_players = 4 if mode == "2v2" else 2
+
+    try:
+        game_time = _safe_int(payload.get("game_time", 15))
+    except ValueError:
+        return jsonify({"success": False, "error": "game_time must be an integer."}), 400
+
+    if not map_id:
+        return jsonify({"success": False, "error": "Map is required."}), 400
+
+    if game_time <= 0:
+        return jsonify({"success": False, "error": "Game time must be greater than zero."}), 400
+
+    matches_data = load_matches_with_cleanup(save_if_changed=True)
+    if any(isinstance(match.get("players"), list) and username in match.get("players", []) and match.get("status") in ("waiting", "in_progress") for match in matches_data["matches"]):
+        return jsonify({"success": False, "error": "You are already in an active lobby or match."}), 409
+
+    lobby_id = str(uuid4())
+    existing_ids = {match.get("id") for match in matches_data["matches"]}
+    while lobby_id in existing_ids:
+        lobby_id = str(uuid4())
+
+    lobby = {
+        "id": lobby_id,
+        "host": username,
+        "map": map_id,
+        "mode": mode,
+        "max_players": max_players,
+        "players": [username],
+        "teams": {username: None},
+        "status": "waiting",
+        "created_at": utc_now_iso(),
+        "game_time": game_time,
+    }
+    matches_data["matches"].append(lobby)
+    save_matches(matches_data)
+    return jsonify({"success": True, "lobby": normalize_match_response(lobby)}), 201
+
+
+@app.route("/api/lobbies", methods=["GET"])
+def get_lobbies():
+    matches_data = load_matches_with_cleanup(save_if_changed=True)
+    waiting = [normalize_match_response(match) for match in matches_data["matches"] if match.get("status") == "waiting"]
+    return jsonify({"success": True, "lobbies": waiting})
+
+
+@app.route("/api/get-lobby/<lobby_id>", methods=["GET"])
+def get_lobby(lobby_id):
+    matches_data = load_matches_with_cleanup(save_if_changed=True)
+    lobby = next((match for match in matches_data["matches"] if match.get("id") == lobby_id), None)
+    if not lobby:
+        return jsonify({"success": False, "error": "Lobby not found."}), 404
+    return jsonify({"success": True, "lobby": normalize_match_response(lobby), "teams": lobby.get("teams", {})})
+
+
+@app.route("/api/join-lobby", methods=["POST"])
+def join_lobby():
+    payload = request.get_json(silent=True) or {}
+    username = session.get("username")
+    lobby_id = (payload.get("id") or "").strip()
+
+    if not username:
+        return jsonify({"success": False, "error": "You must be logged in."}), 401
+
+    if not lobby_id:
+        return jsonify({"success": False, "error": "Lobby id is required."}), 400
+
+    matches_data = load_matches_with_cleanup(save_if_changed=True)
+    lobby = next((match for match in matches_data["matches"] if match.get("id") == lobby_id), None)
+    if not lobby or lobby.get("status") != "waiting":
+        return jsonify({"success": False, "error": "Lobby is unavailable."}), 404
+
+    players = lobby.setdefault("players", [])
+    if username in players:
+        return jsonify({"success": True, "lobby": normalize_match_response(lobby)})
+
+    if len(players) >= lobby.get("max_players", 2):
+        return jsonify({"success": False, "error": "Lobby is full."}), 409
+
+    players.append(username)
+    lobby.setdefault("teams", {})[username] = None
+    save_matches(matches_data)
+    return jsonify({"success": True, "lobby": normalize_match_response(lobby)})
+
+
+@app.route("/api/leave-lobby", methods=["POST"])
+def leave_lobby():
+    payload = request.get_json(silent=True) or {}
+    username = session.get("username")
+    lobby_id = (payload.get("id") or "").strip()
+
+    if not username:
+        return jsonify({"success": False, "error": "You must be logged in."}), 401
+
+    matches_data = load_matches_with_cleanup(save_if_changed=True)
+    lobby_index = next((idx for idx, match in enumerate(matches_data["matches"]) if match.get("id") == lobby_id), None)
+    if lobby_index is None:
+        return jsonify({"success": False, "error": "Lobby not found."}), 404
+
+    lobby = matches_data["matches"][lobby_index]
+    if username == lobby.get("host"):
+        matches_data["matches"].pop(lobby_index)
+    else:
+        lobby["players"] = [player for player in lobby.get("players", []) if player != username]
+        lobby.setdefault("teams", {}).pop(username, None)
+    save_matches(matches_data)
+    return jsonify({"success": True})
+
+
+@app.route("/api/set-lobby-team", methods=["POST"])
+def set_lobby_team():
+    payload = request.get_json(silent=True) or {}
+    username = session.get("username")
+    lobby_id = (payload.get("id") or "").strip()
+    team = (payload.get("team") or "").strip().lower()
+
+    if not username:
+        return jsonify({"success": False, "error": "You must be logged in."}), 401
+
+    if team not in ("blue", "red"):
+        return jsonify({"success": False, "error": "Invalid team."}), 400
+
+    matches_data = load_matches_with_cleanup(save_if_changed=True)
+    lobby = next((match for match in matches_data["matches"] if match.get("id") == lobby_id), None)
+    if not lobby or lobby.get("status") != "waiting":
+        return jsonify({"success": False, "error": "Lobby unavailable."}), 404
+
+    players = lobby.get("players", [])
+    if username not in players:
+        return jsonify({"success": False, "error": "You are not a member of this lobby."}), 403
+
+    slots_per_team = 2 if lobby.get("mode") == "2v2" else 1
+    teams = lobby.setdefault("teams", {})
+    existing_count = sum(1 for player, assigned in teams.items() if assigned == team and player != username)
+    if existing_count >= slots_per_team:
+        return jsonify({"success": False, "error": "Team is full."}), 409
+
+    teams[username] = team
+    save_matches(matches_data)
+    return jsonify({"success": True, "lobby": normalize_match_response(lobby), "teams": teams})
+
+
+@app.route("/api/start-match", methods=["POST"])
+def start_match():
+    payload = request.get_json(silent=True) or {}
+    username = session.get("username")
+    lobby_id = (payload.get("id") or "").strip()
+
+    if not username:
+        return jsonify({"success": False, "error": "You must be logged in."}), 401
+
+    matches_data = load_matches_with_cleanup(save_if_changed=True)
+    lobby = next((match for match in matches_data["matches"] if match.get("id") == lobby_id), None)
+    if not lobby:
+        return jsonify({"success": False, "error": "Lobby not found."}), 404
+
+    if lobby.get("host") != username:
+        return jsonify({"success": False, "error": "Only host can start the match."}), 403
+
+    if lobby.get("status") != "waiting":
+        return jsonify({"success": False, "error": "Match already started."}), 409
+
+    if len(lobby.get("players", [])) < lobby.get("max_players", 2):
+        return jsonify({"success": False, "error": "Not all player slots are filled."}), 409
+
+    lobby["status"] = "in_progress"
+    save_matches(matches_data)
+    return jsonify({"success": True, "lobby": normalize_match_response(lobby)})
+
+
+@app.route("/api/check-active-match", methods=["GET"])
+def check_active_match():
+    username = session.get("username")
+    if not username:
+        return jsonify({"success": False, "error": "You must be logged in."}), 401
+
+    matches_data = load_matches_with_cleanup(save_if_changed=True)
+    for match in matches_data["matches"]:
+        players = match.get("players", [])
+        if isinstance(players, list) and username in players:
+            return jsonify({"success": True, "match": normalize_match_response(match), "teams": match.get("teams", {})})
+
+    return jsonify({"success": True, "match": None})
 
 
 if __name__ == "__main__":
